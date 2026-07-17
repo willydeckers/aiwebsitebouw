@@ -7,6 +7,7 @@ import { LEAD_PIPELINE, LEAD_STATUS_LABELS } from "@/lib/types";
 import { updateLeadNotities } from "./actions";
 import { StatusBadge } from "./status-badge";
 import { ResearchButton } from "./research-button";
+import { GenerateButton } from "./generate-button";
 
 export function LeadDetailPanel({ lead }: { lead: Lead }) {
   const router = useRouter();
@@ -136,13 +137,28 @@ export function LeadDetailPanel({ lead }: { lead: Lead }) {
           </section>
         ) : null}
 
+        {lead.demo_url ? (
+          <section className="mt-6 text-sm">
+            <h3 className="font-medium text-neutral-700">Demo</h3>
+            <a
+              href={lead.demo_url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-blue-600 underline"
+            >
+              {lead.demo_url}
+            </a>
+          </section>
+        ) : null}
+
         <section className="mt-6 space-y-2">
           <ResearchButton leadId={lead.id} />
+          <GenerateButton leadId={lead.id} />
 
           <button
             type="button"
             disabled
-            title="Wordt gebouwd zodra de generatie-pipeline klaar is (build stap 5)."
+            title="Wordt gebouwd zodra de review-loop klaar is (build stap 6) — dit koppelt research + generatie + review tot één actie."
             className="w-full rounded-md bg-neutral-200 px-3 py-2 text-sm font-medium text-neutral-500"
           >
             {lead.status === "nieuw" ? "Genereer demo" : "Bekijk demo"}
