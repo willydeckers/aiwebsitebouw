@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 import type { Lead } from "@/lib/types";
 import { startGeneration } from "./generate-actions";
 import { startPatchEdit } from "./patch-actions";
+import { SendDialog } from "./send-dialog";
 
 type Viewport = "desktop" | "mobiel";
 
@@ -26,6 +27,7 @@ export function DemoPreview({ lead }: { lead: Lead }) {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatPending, startChatTransition] = useTransition();
   const [previewVersion, setPreviewVersion] = useState(0);
+  const [sendDialogOpen, setSendDialogOpen] = useState(false);
 
   function handleRegenerate() {
     setError(null);
@@ -176,12 +178,23 @@ export function DemoPreview({ lead }: { lead: Lead }) {
 
       <button
         type="button"
-        disabled
-        title="Wordt gebouwd in build stap 9 (spec sectie 3.6)."
-        className="w-full rounded-md bg-neutral-200 px-3 py-2 text-sm font-medium text-neutral-500"
+        onClick={() => setSendDialogOpen(true)}
+        disabled={lead.status !== "klaar" || !lead.contact_email}
+        title={
+          lead.status !== "klaar"
+            ? "Enkel beschikbaar zodra de status 'Klaar' is (spec 3.6)."
+            : !lead.contact_email
+              ? "Deze lead heeft geen contact e-mailadres."
+              : undefined
+        }
+        className="w-full rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white disabled:bg-neutral-200 disabled:text-neutral-500"
       >
         Verstuur naar lead
       </button>
+
+      {sendDialogOpen ? (
+        <SendDialog lead={lead} onClose={() => setSendDialogOpen(false)} />
+      ) : null}
     </section>
   );
 }

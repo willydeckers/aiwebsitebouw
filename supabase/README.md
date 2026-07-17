@@ -23,3 +23,21 @@ section 5 (datamodel) and section 6 (security).
 4. Copy the project URL and anon key into `app/.env.local` (see
    `app/.env.local.example`). Never put the service-role key in the client —
    it's for Edge Functions only.
+5. Copy the service-role key into `SUPABASE_SERVICE_ROLE_KEY` in
+   `app/.env.local` too — it's used server-only by the public tracking
+   redirect (`app/api/track/[leadId]`), which runs without a dashboard login
+   session and so can't use the anon key + RLS like everything else.
+
+## Gmail API (spec section 3.6 — sending + open notifications)
+
+Requires a Google Cloud project with the Gmail API enabled and an OAuth
+client (Desktop app or Web app type). One-time, per sending account:
+
+1. Create OAuth credentials in Google Cloud Console → APIs & Services →
+   Credentials. Note the client ID and secret.
+2. Run the standard Google OAuth2 authorization-code flow once (e.g. via
+   Google's OAuth Playground, or a short throwaway script) with scope
+   `https://www.googleapis.com/auth/gmail.send`, using that client ID/secret,
+   to obtain a refresh token for the account that should send from.
+3. Fill in `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`,
+   and `GMAIL_SENDER_EMAIL` in `app/.env.local`.
