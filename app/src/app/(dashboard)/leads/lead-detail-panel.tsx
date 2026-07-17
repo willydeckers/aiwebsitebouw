@@ -8,6 +8,7 @@ import { updateLeadNotities } from "./actions";
 import { StatusBadge } from "./status-badge";
 import { ResearchButton } from "./research-button";
 import { GenerateButton } from "./generate-button";
+import { ReviewButton } from "./review-button";
 
 export function LeadDetailPanel({ lead }: { lead: Lead }) {
   const router = useRouter();
@@ -151,14 +152,39 @@ export function LeadDetailPanel({ lead }: { lead: Lead }) {
           </section>
         ) : null}
 
+        {lead.review_notitie ? (
+          <section className="mt-6 space-y-2 text-sm">
+            <h3 className="font-medium text-neutral-700">Review (3.4)</h3>
+            <p className="text-neutral-600">
+              {lead.review_notitie.goedgekeurd ? "Goedgekeurd" : "Niet goedgekeurd"} na{" "}
+              {lead.review_notitie.iteraties} iteratie
+              {lead.review_notitie.iteraties === 1 ? "" : "s"}
+            </p>
+            {lead.review_notitie.feedback ? (
+              <p className="text-neutral-600">{lead.review_notitie.feedback}</p>
+            ) : null}
+            {lead.review_notitie.mist.length > 0 ? (
+              <p className="text-neutral-600">
+                Ontbreekt: {lead.review_notitie.mist.join("; ")}
+              </p>
+            ) : null}
+            {lead.review_notitie.klopt_niet.length > 0 ? (
+              <p className="text-neutral-600">
+                Klopt niet: {lead.review_notitie.klopt_niet.join("; ")}
+              </p>
+            ) : null}
+          </section>
+        ) : null}
+
         <section className="mt-6 space-y-2">
           <ResearchButton leadId={lead.id} />
           <GenerateButton leadId={lead.id} />
+          <ReviewButton leadId={lead.id} />
 
           <button
             type="button"
             disabled
-            title="Wordt gebouwd zodra de review-loop klaar is (build stap 6) — dit koppelt research + generatie + review tot één actie."
+            title="Wordt gebouwd zodra de demo-preview met chatbox klaar is (build stap 7-8) — dit koppelt research + generatie + review tot één actie."
             className="w-full rounded-md bg-neutral-200 px-3 py-2 text-sm font-medium text-neutral-500"
           >
             {lead.status === "nieuw" ? "Genereer demo" : "Bekijk demo"}

@@ -43,6 +43,14 @@ export type ResearchOutput = {
   logo_url: string | null;
 };
 
+export type ReviewNotitie = {
+  goedgekeurd: boolean;
+  iteraties: number;
+  feedback: string | null;
+  mist: string[];
+  klopt_niet: string[];
+};
+
 export type Lead = {
   id: string;
   bedrijfsnaam: string;
@@ -56,6 +64,7 @@ export type Lead = {
   klant_type: "statisch" | "shopify" | null;
   shopify_store_id: string | null;
   research_output: ResearchOutput | null;
+  review_notitie: ReviewNotitie | null;
   laatste_update: string;
   aangemaakt_op: string;
 };
