@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import type { Lead } from "@/lib/types";
 import { LEAD_PIPELINE, LEAD_STATUS_LABELS } from "@/lib/types";
+import type { CostSummary } from "@/lib/costs";
 import { updateLeadNotities } from "./actions";
 import { StatusBadge } from "./status-badge";
 import { ResearchButton } from "./research-button";
@@ -11,8 +12,15 @@ import { GenerateButton } from "./generate-button";
 import { ReviewButton } from "./review-button";
 import { DemoPreview } from "./demo-preview";
 import { ConvertButton } from "./convert-button";
+import { CostSummaryView } from "./cost-summary-view";
 
-export function LeadDetailPanel({ lead }: { lead: Lead }) {
+export function LeadDetailPanel({
+  lead,
+  costSummary,
+}: {
+  lead: Lead;
+  costSummary?: CostSummary | null;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [notities, setNotities] = useState(lead.notities ?? "");
@@ -156,6 +164,8 @@ export function LeadDetailPanel({ lead }: { lead: Lead }) {
         ) : null}
 
         {lead.demo_url ? <DemoPreview lead={lead} /> : null}
+
+        {costSummary ? <CostSummaryView summary={costSummary} /> : null}
 
         <section className="mt-6 space-y-2">
           <ResearchButton leadId={lead.id} />

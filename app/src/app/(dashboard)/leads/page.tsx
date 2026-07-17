@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import type { Lead, LeadStatus } from "@/lib/types";
+import { fetchCostSummary } from "@/lib/costs";
 import { LeadsToolbar } from "./leads-toolbar";
 import { LeadsTable } from "./leads-table";
 import { LeadDetailPanel } from "./lead-detail-panel";
@@ -28,6 +29,8 @@ export default async function LeadsPage({
     ? (leads ?? []).find((l) => l.id === selectedLeadId) ?? null
     : null;
 
+  const costSummary = selectedLead ? await fetchCostSummary(supabase, selectedLead.id) : null;
+
   return (
     <div>
       <div className="flex items-center justify-between">
@@ -44,7 +47,9 @@ export default async function LeadsPage({
         <LeadsTable leads={(leads ?? []) as Lead[]} />
       )}
 
-      {selectedLead ? <LeadDetailPanel lead={selectedLead as Lead} /> : null}
+      {selectedLead ? (
+        <LeadDetailPanel lead={selectedLead as Lead} costSummary={costSummary} />
+      ) : null}
     </div>
   );
 }

@@ -7,7 +7,7 @@ export default async function KlantenPage() {
   const { data: klanten, error } = await supabase
     .from("klanten")
     .select(
-      "id, type, site_status, shopify_staff_account_status, shopify_domain, lead:leads(bedrijfsnaam)",
+      "id, type, site_status, shopify_staff_account_status, shopify_domain, lead:leads(id, bedrijfsnaam)",
     )
     .order("id", { ascending: false });
 

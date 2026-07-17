@@ -1,8 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { KlantenChatPanel } from "./klanten-chat-panel";
 import { StaffInviteButton } from "./staff-invite-button";
+import { CostSummaryView } from "../leads/cost-summary-view";
+import { getCostSummary } from "../leads/cost-actions";
+import type { CostSummary } from "@/lib/costs";
 
 export type KlantRow = {
   id: string;
@@ -10,12 +13,26 @@ export type KlantRow = {
   site_status: string | null;
   shopify_staff_account_status: string | null;
   shopify_domain: string | null;
-  lead: { bedrijfsnaam: string } | null;
+  lead: { id: string; bedrijfsnaam: string } | null;
 };
 
 export function KlantenList({ klanten }: { klanten: KlantRow[] }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [costSummary, setCostSummary] = useState<CostSummary | null>(null);
   const selected = klanten.find((k) => k.id === selectedId) ?? null;
+
+  useEffect(() => {
+    if (!selected?.lead) {
+      return;
+    }
+    let cancelled = false;
+    getCostSummary(selected.lead.id).then((summary) => {
+      if (!cancelled) setCostSummary(summary);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected]);
 
   return (
     <div>
@@ -70,6 +87,7 @@ export function KlantenList({ klanten }: { klanten: KlantRow[] }) {
             klantId={selected.id}
             klantNaam={selected.lead?.bedrijfsnaam ?? "Onbekend"}
           />
+          {costSummary ? <CostSummaryView summary={costSummary} /> : null}
         </>
       ) : null}
     </div>
