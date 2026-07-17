@@ -8,7 +8,10 @@ import type { Lead } from "@/lib/types";
 
 const UNIQUE_VIOLATION = "23505";
 
-export async function startGeneration(leadId: string): Promise<string | null> {
+export async function startGeneration(
+  leadId: string,
+  extraInstructies?: string,
+): Promise<string | null> {
   const supabase = await createClient();
 
   const { data: lead, error: leadError } = await supabase
@@ -50,6 +53,7 @@ export async function startGeneration(leadId: string): Promise<string | null> {
       lead as Lead,
       stijlvoorkeuren ?? [],
       sectorKennis ?? [],
+      extraInstructies,
     );
 
     const { error: uploadError } = await supabase.storage

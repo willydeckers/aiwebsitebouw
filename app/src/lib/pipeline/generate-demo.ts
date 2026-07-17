@@ -40,7 +40,7 @@ export async function runGenerateDemo(
   lead: Lead,
   stijlvoorkeuren: StijlVoorkeur[],
   sectorKennis: SectorKennis[],
-  reviewFeedback?: string,
+  extraContext?: string,
 ): Promise<{ html: string; usage: GenerateUsage }> {
   const client = createAnthropicClient();
 
@@ -58,8 +58,8 @@ export async function runGenerateDemo(
     `Sectorstijl-richtlijn:\n${getSectorStyleGuidance(lead.sector)}`,
     `Stijlvoorkeuren:\n${formatStijlvoorkeuren(stijlvoorkeuren)}`,
     `Sectorkennis (${lead.sector}):\n${formatSectorKennis(sectorKennis)}`,
-    reviewFeedback
-      ? `Dit is een herziening na review-feedback (spec 3.4) — verwerk expliciet wat hieronder\nals ontbrekend of onjuist werd gemeld:\n${reviewFeedback}`
+    extraContext
+      ? `Dit is een herziening — verwerk expliciet de volgende extra instructies of feedback:\n${extraContext}`
       : null,
   ]
     .filter(Boolean)

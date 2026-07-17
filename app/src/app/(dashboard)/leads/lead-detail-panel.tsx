@@ -9,6 +9,7 @@ import { StatusBadge } from "./status-badge";
 import { ResearchButton } from "./research-button";
 import { GenerateButton } from "./generate-button";
 import { ReviewButton } from "./review-button";
+import { DemoPreview } from "./demo-preview";
 
 export function LeadDetailPanel({ lead }: { lead: Lead }) {
   const router = useRouter();
@@ -36,7 +37,11 @@ export function LeadDetailPanel({ lead }: { lead: Lead }) {
 
   return (
     <div className="fixed inset-0 z-10 flex justify-end bg-black/20">
-      <div className="h-full w-full max-w-md overflow-y-auto bg-white p-6 shadow-xl">
+      <div
+        className={`h-full w-full overflow-y-auto bg-white p-6 shadow-xl ${
+          lead.demo_url ? "max-w-3xl" : "max-w-md"
+        }`}
+      >
         <div className="flex items-start justify-between">
           <div>
             <h2 className="text-base font-semibold text-neutral-900">
@@ -138,43 +143,7 @@ export function LeadDetailPanel({ lead }: { lead: Lead }) {
           </section>
         ) : null}
 
-        {lead.demo_url ? (
-          <section className="mt-6 text-sm">
-            <h3 className="font-medium text-neutral-700">Demo</h3>
-            <a
-              href={lead.demo_url}
-              target="_blank"
-              rel="noreferrer"
-              className="text-blue-600 underline"
-            >
-              {lead.demo_url}
-            </a>
-          </section>
-        ) : null}
-
-        {lead.review_notitie ? (
-          <section className="mt-6 space-y-2 text-sm">
-            <h3 className="font-medium text-neutral-700">Review (3.4)</h3>
-            <p className="text-neutral-600">
-              {lead.review_notitie.goedgekeurd ? "Goedgekeurd" : "Niet goedgekeurd"} na{" "}
-              {lead.review_notitie.iteraties} iteratie
-              {lead.review_notitie.iteraties === 1 ? "" : "s"}
-            </p>
-            {lead.review_notitie.feedback ? (
-              <p className="text-neutral-600">{lead.review_notitie.feedback}</p>
-            ) : null}
-            {lead.review_notitie.mist.length > 0 ? (
-              <p className="text-neutral-600">
-                Ontbreekt: {lead.review_notitie.mist.join("; ")}
-              </p>
-            ) : null}
-            {lead.review_notitie.klopt_niet.length > 0 ? (
-              <p className="text-neutral-600">
-                Klopt niet: {lead.review_notitie.klopt_niet.join("; ")}
-              </p>
-            ) : null}
-          </section>
-        ) : null}
+        {lead.demo_url ? <DemoPreview lead={lead} /> : null}
 
         <section className="mt-6 space-y-2">
           <ResearchButton leadId={lead.id} />
