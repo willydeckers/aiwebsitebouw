@@ -25,20 +25,20 @@ export function AddLeadDialog({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/30">
+    <div className="fixed inset-0 z-20 flex items-center justify-center bg-slate-900/20 backdrop-blur-sm">
       <form
         ref={formRef}
         action={formAction}
-        className="w-full max-w-md space-y-3 rounded-lg bg-white p-6 shadow-lg"
+        className="w-full max-w-md space-y-3 rounded-3xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-blue-200/40 backdrop-blur-xl"
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-neutral-900">
+          <h2 className="text-base font-semibold text-slate-900">
             Lead toevoegen
           </h2>
           <button
             type="button"
             onClick={onClose}
-            className="text-sm text-neutral-500 hover:text-neutral-800"
+            className="text-sm text-slate-500 hover:text-slate-800"
           >
             Sluiten
           </button>
@@ -47,18 +47,18 @@ export function AddLeadDialog({
         <Field label="Bedrijfsnaam" name="bedrijfsnaam" required />
         <Field label="Sector" name="sector" required />
         <Field label="Adres" name="adres" />
-        <Field label="Contact e-mail" name="contact_email" type="email" />
-        <Field label="Contactpersoon" name="contact_naam" />
+        <Field label="Contact e-mail" name="contact_email" type="email" noSpellCheck />
+        <Field label="Contactpersoon" name="contact_naam" noSpellCheck />
 
         <div className="space-y-1">
-          <label htmlFor="notities" className="text-sm text-neutral-600">
+          <label htmlFor="notities" className="text-sm text-slate-600">
             Notities / briefing
           </label>
           <textarea
             id="notities"
             name="notities"
             rows={3}
-            className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500"
+            className="w-full rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
           />
         </div>
 
@@ -67,7 +67,7 @@ export function AddLeadDialog({
         <button
           type="submit"
           disabled={pending}
-          className="w-full rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="w-full rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-md shadow-blue-300/50 transition hover:bg-blue-500 disabled:opacity-50"
         >
           {pending ? "Bezig..." : "Toevoegen"}
         </button>
@@ -81,15 +81,17 @@ function Field({
   name,
   type = "text",
   required = false,
+  noSpellCheck = false,
 }: {
   label: string;
   name: string;
   type?: string;
   required?: boolean;
+  noSpellCheck?: boolean;
 }) {
   return (
     <div className="space-y-1">
-      <label htmlFor={name} className="text-sm text-neutral-600">
+      <label htmlFor={name} className="text-sm text-slate-600">
         {label}
         {required ? " *" : ""}
       </label>
@@ -98,7 +100,9 @@ function Field({
         name={name}
         type={type}
         required={required}
-        className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500"
+        spellCheck={!noSpellCheck}
+        autoCorrect={noSpellCheck ? "off" : undefined}
+        className="w-full rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
       />
     </div>
   );

@@ -38,7 +38,7 @@ export function KlantenList({ klanten }: { klanten: KlantRow[] }) {
     <div>
       <table className="mt-4 w-full text-left text-sm">
         <thead>
-          <tr className="border-b border-neutral-200 text-neutral-500">
+          <tr className="border-b border-blue-100 text-slate-500">
             <th className="py-2 font-medium">Klantnaam</th>
             <th className="py-2 font-medium">Type</th>
             <th className="py-2 font-medium">Site-status</th>
@@ -49,15 +49,15 @@ export function KlantenList({ klanten }: { klanten: KlantRow[] }) {
             <tr
               key={klant.id}
               onClick={() => setSelectedId(klant.id)}
-              className={`cursor-pointer border-b border-neutral-100 hover:bg-neutral-50 ${
-                selectedId === klant.id ? "bg-neutral-50" : ""
+              className={`cursor-pointer border-b border-blue-50 hover:bg-blue-50/60 ${
+                selectedId === klant.id ? "bg-blue-50/60" : ""
               }`}
             >
-              <td className="py-2 font-medium text-neutral-900">
+              <td className="py-2 font-medium text-slate-900">
                 {klant.lead?.bedrijfsnaam ?? "Onbekend"}
               </td>
-              <td className="py-2 text-neutral-600">{klant.type}</td>
-              <td className="py-2 text-neutral-600">{klant.site_status ?? "—"}</td>
+              <td className="py-2 text-slate-600">{klant.type}</td>
+              <td className="py-2 text-slate-600">{klant.site_status ?? "—"}</td>
             </tr>
           ))}
         </tbody>

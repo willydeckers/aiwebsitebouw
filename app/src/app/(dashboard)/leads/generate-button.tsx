@@ -28,7 +28,7 @@ export function GenerateButton({ leadId }: { leadId: string }) {
         onClick={handleClick}
         disabled={pending}
         title="Genereert de statische demo-HTML (spec 3.3) — vereist research-output en een geldige ANTHROPIC_API_KEY."
-        className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100 disabled:opacity-50"
+        className="w-full rounded-xl border border-blue-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-blue-50 disabled:opacity-50"
       >
         {pending ? "Demo wordt gegenereerd..." : "Genereer demo (test)"}
       </button>

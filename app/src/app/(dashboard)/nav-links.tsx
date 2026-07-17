@@ -23,10 +23,10 @@ export function NavLinks() {
           <Link
             key={href}
             href={href}
-            className={`block rounded-md px-3 py-2 text-sm font-medium ${
+            className={`block rounded-xl px-3 py-2 text-sm font-medium transition ${
               active
-                ? "bg-neutral-900 text-white"
-                : "text-neutral-700 hover:bg-neutral-200"
+                ? "bg-blue-600 text-white shadow-md shadow-blue-300/50"
+                : "text-slate-700 hover:bg-blue-100/60"
             }`}
           >
             {label}

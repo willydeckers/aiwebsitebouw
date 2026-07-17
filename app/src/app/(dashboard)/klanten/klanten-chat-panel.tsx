@@ -27,18 +27,18 @@ export function KlantenChatPanel({ klantId, klantNaam }: { klantId: string; klan
   }
 
   return (
-    <div className="mt-4 rounded-md border border-neutral-200 p-4">
-      <h3 className="text-sm font-medium text-neutral-700">
+    <div className="mt-4 rounded-xl border border-blue-100 p-4">
+      <h3 className="text-sm font-medium text-slate-700">
         Chat-based bewerken — {klantNaam} (3.5/3.9)
       </h3>
-      <p className="mt-1 text-xs text-neutral-400">
+      <p className="mt-1 text-xs text-slate-400">
         Zelfde interface voor statisch en Shopify — het systeem kiest zelf de juiste backend.
       </p>
 
       {messages.length > 0 ? (
-        <ul className="mt-2 max-h-32 space-y-1 overflow-y-auto rounded-md border border-neutral-200 p-2 text-xs">
+        <ul className="mt-2 max-h-32 space-y-1 overflow-y-auto rounded-xl border border-blue-100 p-2 text-xs">
           {messages.map((msg, i) => (
-            <li key={i} className={msg.role === "user" ? "text-neutral-800" : "text-neutral-500"}>
+            <li key={i} className={msg.role === "user" ? "text-slate-800" : "text-slate-500"}>
               <span className="font-medium">{msg.role === "user" ? "Jij: " : "Systeem: "}</span>
               {msg.text}
             </li>
@@ -54,13 +54,13 @@ export function KlantenChatPanel({ klantId, klantNaam }: { klantId: string; klan
             if (e.key === "Enter") handleSend();
           }}
           placeholder="bv. voeg product toe: Lentetaart, €18,50"
-          className="flex-1 rounded-md border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500"
+          className="flex-1 rounded-xl border border-blue-200 px-3 py-2 text-sm outline-none text-slate-900 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
         />
         <button
           type="button"
           onClick={handleSend}
           disabled={pending}
-          className="rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
         >
           {pending ? "Bezig..." : "Verstuur"}
         </button>

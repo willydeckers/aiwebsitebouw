@@ -34,11 +34,11 @@ export function StaffInviteButton({
         onClick={handleClick}
         disabled={pending}
         title="Nodigt de klant uit als Shopify staff-account, beperkt tot Producten (spec 3.9)."
-        className="rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100 disabled:opacity-50"
+        className="rounded-xl border border-blue-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-blue-50 disabled:opacity-50"
       >
         {pending ? "Bezig..." : "Genereer staff-uitnodiging"}
       </button>
-      {status ? <p className="text-xs text-neutral-500">Status: {status}</p> : null}
+      {status ? <p className="text-xs text-slate-500">Status: {status}</p> : null}
       {error ? <p className="text-xs text-red-600">{error}</p> : null}
     </div>
   );

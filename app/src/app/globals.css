@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #eff6ff;
+  --foreground: #0f172a;
 }
 
 @theme inline {
@@ -12,15 +12,22 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* This app has no dark theme designed yet, so we deliberately don't follow
+   prefers-color-scheme — flipping --foreground to near-white while form
+   inputs stayed on white backgrounds made typed text nearly invisible. */
 
 body {
+  min-height: 100vh;
   background: var(--background);
+  background-image: radial-gradient(at top left, #dbeafe, transparent 60%),
+    radial-gradient(at bottom right, #bfdbfe, transparent 55%);
+  background-attachment: fixed;
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+input,
+textarea,
+select {
+  color: var(--foreground);
 }

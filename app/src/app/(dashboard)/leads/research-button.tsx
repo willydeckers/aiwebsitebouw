@@ -28,7 +28,7 @@ export function ResearchButton({ leadId }: { leadId: string }) {
         onClick={handleClick}
         disabled={pending}
         title="Roept de research-stap aan (spec 3.2) — vereist een geldige ANTHROPIC_API_KEY."
-        className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100 disabled:opacity-50"
+        className="w-full rounded-xl border border-blue-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-blue-50 disabled:opacity-50"
       >
         {pending ? "Research loopt..." : "Start research (test)"}
       </button>

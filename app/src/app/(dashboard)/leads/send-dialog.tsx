@@ -29,35 +29,35 @@ export function SendDialog({ lead, onClose }: { lead: Lead; onClose: () => void 
   }
 
   return (
-    <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/30">
-      <div className="w-full max-w-lg space-y-3 rounded-lg bg-white p-6 shadow-lg">
+    <div className="fixed inset-0 z-20 flex items-center justify-center bg-slate-900/20 backdrop-blur-sm">
+      <div className="w-full max-w-lg space-y-3 rounded-2xl bg-white/80 p-6 shadow-lg">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-neutral-900">
+          <h2 className="text-base font-semibold text-slate-900">
             Verstuur naar {lead.contact_email}
           </h2>
           <button
             type="button"
             onClick={onClose}
-            className="text-sm text-neutral-500 hover:text-neutral-800"
+            className="text-sm text-slate-500 hover:text-slate-800"
           >
             Sluiten
           </button>
         </div>
 
         <div className="space-y-1">
-          <label htmlFor="subject" className="text-sm text-neutral-600">
+          <label htmlFor="subject" className="text-sm text-slate-600">
             Onderwerp
           </label>
           <input
             id="subject"
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
-            className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500"
+            className="w-full rounded-xl border border-blue-200 px-3 py-2 text-sm outline-none text-slate-900 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
           />
         </div>
 
         <div className="space-y-1">
-          <label htmlFor="body" className="text-sm text-neutral-600">
+          <label htmlFor="body" className="text-sm text-slate-600">
             Bericht
           </label>
           <textarea
@@ -65,9 +65,9 @@ export function SendDialog({ lead, onClose }: { lead: Lead; onClose: () => void 
             value={body}
             onChange={(e) => setBody(e.target.value)}
             rows={6}
-            className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500"
+            className="w-full rounded-xl border border-blue-200 px-3 py-2 text-sm outline-none text-slate-900 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
           />
-          <p className="text-xs text-neutral-400">
+          <p className="text-xs text-slate-400">
             De tracking-link naar de demo wordt automatisch onderaan toegevoegd.
           </p>
         </div>
@@ -78,7 +78,7 @@ export function SendDialog({ lead, onClose }: { lead: Lead; onClose: () => void 
           type="button"
           onClick={handleConfirm}
           disabled={pending}
-          className="w-full rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="w-full rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
         >
           {pending ? "Versturen..." : "Bevestigen en versturen"}
         </button>

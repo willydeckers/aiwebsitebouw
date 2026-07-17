@@ -13,12 +13,12 @@ export default async function KlantenPage() {
 
   return (
     <div>
-      <h1 className="text-lg font-semibold text-neutral-900">Klanten</h1>
+      <h1 className="text-lg font-semibold text-slate-900">Klanten</h1>
 
       {error ? (
         <p className="mt-4 text-sm text-red-600">Kon klanten niet laden: {error.message}</p>
       ) : !klanten || klanten.length === 0 ? (
-        <p className="mt-6 text-sm text-neutral-500">
+        <p className="mt-6 text-sm text-slate-500">
           Nog geen klanten — markeer een lead als klant via het detailpaneel (spec sectie 3.8).
         </p>
       ) : (

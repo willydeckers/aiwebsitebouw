@@ -28,7 +28,7 @@ export function ConvertButton({ leadId }: { leadId: string }) {
       <button
         type="button"
         onClick={() => setChoosing(true)}
-        className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100"
+        className="w-full rounded-xl border border-blue-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-blue-50"
       >
         Markeer als klant
       </button>
@@ -37,13 +37,13 @@ export function ConvertButton({ leadId }: { leadId: string }) {
 
   return (
     <div className="space-y-1">
-      <p className="text-xs text-neutral-500">Kies het type (spec sectie 3.8):</p>
+      <p className="text-xs text-slate-500">Kies het type (spec sectie 3.8):</p>
       <div className="flex gap-2">
         <button
           type="button"
           onClick={() => handleChoose("statisch")}
           disabled={pending}
-          className="flex-1 rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100 disabled:opacity-50"
+          className="flex-1 rounded-xl border border-blue-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-blue-50 disabled:opacity-50"
         >
           {pending ? "Bezig..." : "Statisch"}
         </button>
@@ -51,7 +51,7 @@ export function ConvertButton({ leadId }: { leadId: string }) {
           type="button"
           onClick={() => handleChoose("shopify")}
           disabled={pending}
-          className="flex-1 rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100 disabled:opacity-50"
+          className="flex-1 rounded-xl border border-blue-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-blue-50 disabled:opacity-50"
         >
           {pending ? "Bezig..." : "Shopify"}
         </button>

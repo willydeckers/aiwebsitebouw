@@ -34,7 +34,7 @@ export default async function LeadsPage({
   return (
     <div>
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-neutral-900">Leads</h1>
+        <h1 className="text-lg font-semibold text-slate-900">Leads</h1>
       </div>
 
       <LeadsToolbar activeStatus={status ?? ""} />

@@ -16,14 +16,14 @@ export function LeadsTable({ leads }: { leads: Lead[] }) {
 
   if (leads.length === 0) {
     return (
-      <p className="mt-6 text-sm text-neutral-500">Nog geen leads.</p>
+      <p className="mt-6 text-sm text-slate-500">Nog geen leads.</p>
     );
   }
 
   return (
     <table className="mt-4 w-full text-left text-sm">
       <thead>
-        <tr className="border-b border-neutral-200 text-neutral-500">
+        <tr className="border-b border-blue-100 text-slate-500">
           <th className="py-2 font-medium">Bedrijfsnaam</th>
           <th className="py-2 font-medium">Sector</th>
           <th className="py-2 font-medium">Status</th>
@@ -35,16 +35,16 @@ export function LeadsTable({ leads }: { leads: Lead[] }) {
           <tr
             key={lead.id}
             onClick={() => openLead(lead.id)}
-            className="cursor-pointer border-b border-neutral-100 hover:bg-neutral-50"
+            className="cursor-pointer border-b border-blue-50 hover:bg-blue-50/60"
           >
-            <td className="py-2 font-medium text-neutral-900">
+            <td className="py-2 font-medium text-slate-900">
               {lead.bedrijfsnaam}
             </td>
-            <td className="py-2 text-neutral-600">{lead.sector}</td>
+            <td className="py-2 text-slate-600">{lead.sector}</td>
             <td className="py-2">
               <StatusBadge status={lead.status} />
             </td>
-            <td className="py-2 text-neutral-600">
+            <td className="py-2 text-slate-600">
               {new Date(lead.aangemaakt_op).toLocaleDateString("nl-BE")}
             </td>
           </tr>

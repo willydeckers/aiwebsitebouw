@@ -67,17 +67,17 @@ export function DemoPreview({ lead }: { lead: Lead }) {
   return (
     <section className="mt-6 space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-neutral-700">Demo-preview</h3>
+        <h3 className="text-sm font-medium text-slate-700">Demo-preview</h3>
         <div className="flex gap-1 text-xs">
           {(["desktop", "mobiel"] as const).map((v) => (
             <button
               key={v}
               type="button"
               onClick={() => setViewport(v)}
-              className={`rounded-md px-2 py-1 font-medium ${
+              className={`rounded-xl px-2 py-1 font-medium ${
                 viewport === v
-                  ? "bg-neutral-900 text-white"
-                  : "border border-neutral-300 text-neutral-600 hover:bg-neutral-100"
+                  ? "bg-blue-600 text-white"
+                  : "border border-blue-200 text-slate-600 hover:bg-blue-50"
               }`}
             >
               {v === "desktop" ? "Desktop" : "Mobiel"}
@@ -86,31 +86,31 @@ export function DemoPreview({ lead }: { lead: Lead }) {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-md border border-neutral-200 bg-neutral-50">
+      <div className="overflow-hidden rounded-xl border border-blue-100 bg-blue-50/60">
         <iframe
           src={previewSrc}
           title="Demo-preview"
-          className="h-[500px] bg-white transition-[width]"
+          className="h-[500px] bg-white/80 transition-[width]"
           style={{ width: VIEWPORT_WIDTH[viewport] }}
         />
       </div>
 
       {lead.review_notitie ? (
         <div className="space-y-1 text-sm">
-          <h4 className="font-medium text-neutral-700">Review-notities (3.4)</h4>
-          <p className="text-neutral-600">
+          <h4 className="font-medium text-slate-700">Review-notities (3.4)</h4>
+          <p className="text-slate-600">
             {lead.review_notitie.goedgekeurd ? "Goedgekeurd" : "Niet goedgekeurd"} na{" "}
             {lead.review_notitie.iteraties} iteratie
             {lead.review_notitie.iteraties === 1 ? "" : "s"}
           </p>
           {lead.review_notitie.feedback ? (
-            <p className="text-neutral-600">{lead.review_notitie.feedback}</p>
+            <p className="text-slate-600">{lead.review_notitie.feedback}</p>
           ) : null}
           {lead.review_notitie.mist.length > 0 ? (
-            <p className="text-neutral-600">Ontbreekt: {lead.review_notitie.mist.join("; ")}</p>
+            <p className="text-slate-600">Ontbreekt: {lead.review_notitie.mist.join("; ")}</p>
           ) : null}
           {lead.review_notitie.klopt_niet.length > 0 ? (
-            <p className="text-neutral-600">
+            <p className="text-slate-600">
               Klopt niet: {lead.review_notitie.klopt_niet.join("; ")}
             </p>
           ) : null}
@@ -118,12 +118,12 @@ export function DemoPreview({ lead }: { lead: Lead }) {
       ) : null}
 
       <div className="space-y-1">
-        <h4 className="text-xs font-medium text-neutral-500">Chat-based bewerken (3.5)</h4>
+        <h4 className="text-xs font-medium text-slate-500">Chat-based bewerken (3.5)</h4>
 
         {chatMessages.length > 0 ? (
-          <ul className="max-h-32 space-y-1 overflow-y-auto rounded-md border border-neutral-200 p-2 text-xs">
+          <ul className="max-h-32 space-y-1 overflow-y-auto rounded-xl border border-blue-100 p-2 text-xs">
             {chatMessages.map((msg, i) => (
-              <li key={i} className={msg.role === "user" ? "text-neutral-800" : "text-neutral-500"}>
+              <li key={i} className={msg.role === "user" ? "text-slate-800" : "text-slate-500"}>
                 <span className="font-medium">{msg.role === "user" ? "Jij: " : "Systeem: "}</span>
                 {msg.text}
               </li>
@@ -140,13 +140,13 @@ export function DemoPreview({ lead }: { lead: Lead }) {
               if (e.key === "Enter") handleSendChat();
             }}
             placeholder="bv. die kleur moet anders"
-            className="flex-1 rounded-md border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500"
+            className="flex-1 rounded-xl border border-blue-200 px-3 py-2 text-sm outline-none text-slate-900 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
           />
           <button
             type="button"
             onClick={handleSendChat}
             disabled={chatPending}
-            className="rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             {chatPending ? "Bezig..." : "Verstuur"}
           </button>
@@ -154,7 +154,7 @@ export function DemoPreview({ lead }: { lead: Lead }) {
       </div>
 
       <div className="space-y-1">
-        <label htmlFor="extra-instructies" className="text-xs font-medium text-neutral-500">
+        <label htmlFor="extra-instructies" className="text-xs font-medium text-slate-500">
           Opnieuw genereren met extra instructies
         </label>
         <textarea
@@ -163,13 +163,13 @@ export function DemoPreview({ lead }: { lead: Lead }) {
           onChange={(e) => setExtraInstructies(e.target.value)}
           rows={2}
           placeholder="bv. gebruik een lichtere achtergrondkleur"
-          className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500"
+          className="w-full rounded-xl border border-blue-200 px-3 py-2 text-sm outline-none text-slate-900 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
         />
         <button
           type="button"
           onClick={handleRegenerate}
           disabled={pending}
-          className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100 disabled:opacity-50"
+          className="w-full rounded-xl border border-blue-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-blue-50 disabled:opacity-50"
         >
           {pending ? "Bezig..." : "Opnieuw genereren met extra instructies"}
         </button>
@@ -187,7 +187,7 @@ export function DemoPreview({ lead }: { lead: Lead }) {
               ? "Deze lead heeft geen contact e-mailadres."
               : undefined
         }
-        className="w-full rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white disabled:bg-neutral-200 disabled:text-neutral-500"
+        className="w-full rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:bg-blue-50 disabled:text-slate-500"
       >
         Verstuur naar lead
       </button>

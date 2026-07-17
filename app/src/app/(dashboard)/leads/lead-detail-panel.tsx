@@ -45,41 +45,41 @@ export function LeadDetailPanel({
   const isSideState = pipelineIndex === -1; // geblokkeerd / dood
 
   return (
-    <div className="fixed inset-0 z-10 flex justify-end bg-black/20">
+    <div className="fixed inset-0 z-10 flex justify-end bg-slate-900/20 backdrop-blur-sm">
       <div
-        className={`h-full w-full overflow-y-auto bg-white p-6 shadow-xl ${
+        className={`h-full w-full overflow-y-auto border-l border-white/60 bg-white/80 p-6 shadow-xl shadow-blue-200/40 backdrop-blur-xl ${
           lead.demo_url ? "max-w-3xl" : "max-w-md"
         }`}
       >
         <div className="flex items-start justify-between">
           <div>
-            <h2 className="text-base font-semibold text-neutral-900">
+            <h2 className="text-base font-semibold text-slate-900">
               {lead.bedrijfsnaam}
             </h2>
-            <p className="text-sm text-neutral-500">{lead.sector}</p>
+            <p className="text-sm text-slate-500">{lead.sector}</p>
           </div>
           <button
             onClick={close}
-            className="text-sm text-neutral-500 hover:text-neutral-800"
+            className="text-sm text-slate-500 hover:text-slate-800"
           >
             Sluiten
           </button>
         </div>
 
         <section className="mt-6 space-y-1 text-sm">
-          <h3 className="font-medium text-neutral-700">Bedrijfsgegevens</h3>
-          <p className="text-neutral-600">{lead.adres || "Geen adres"}</p>
-          <p className="text-neutral-600">
+          <h3 className="font-medium text-slate-700">Bedrijfsgegevens</h3>
+          <p className="text-slate-600">{lead.adres || "Geen adres"}</p>
+          <p className="text-slate-600">
             {lead.contact_naam || "Geen contactpersoon"}
           </p>
-          <p className="text-neutral-600">
+          <p className="text-slate-600">
             {lead.contact_email || "Geen contact e-mail"}
           </p>
         </section>
 
         <section className="mt-6">
           {lead.klant_type ? (
-            <p className="text-sm text-neutral-600">
+            <p className="text-sm text-slate-600">
               Klant — type: <span className="font-medium">{lead.klant_type}</span>
               {lead.shopify_store_id ? ` (store: ${lead.shopify_store_id})` : ""}
             </p>
@@ -89,7 +89,7 @@ export function LeadDetailPanel({
         </section>
 
         <section className="mt-6">
-          <h3 className="text-sm font-medium text-neutral-700">Status</h3>
+          <h3 className="text-sm font-medium text-slate-700">Status</h3>
 
           {isSideState ? (
             <div className="mt-2">
@@ -102,14 +102,14 @@ export function LeadDetailPanel({
                   <span
                     className={`rounded-full px-2 py-1 font-medium ${
                       i <= pipelineIndex
-                        ? "bg-neutral-900 text-white"
-                        : "bg-neutral-100 text-neutral-400"
+                        ? "bg-blue-600 text-white shadow-sm shadow-blue-300/50"
+                        : "bg-blue-50 text-slate-400"
                     }`}
                   >
                     {LEAD_STATUS_LABELS[step]}
                   </span>
                   {i < LEAD_PIPELINE.length - 1 ? (
-                    <span className="text-neutral-300">→</span>
+                    <span className="text-blue-200">→</span>
                   ) : null}
                 </li>
               ))}
@@ -118,7 +118,7 @@ export function LeadDetailPanel({
         </section>
 
         <section className="mt-6 space-y-1">
-          <label htmlFor="notities" className="text-sm font-medium text-neutral-700">
+          <label htmlFor="notities" className="text-sm font-medium text-slate-700">
             Notities / briefing
           </label>
           <textarea
@@ -127,10 +127,10 @@ export function LeadDetailPanel({
             onChange={(e) => setNotities(e.target.value)}
             onBlur={handleBlur}
             rows={5}
-            className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500"
+            className="w-full rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
           />
           {saving ? (
-            <p className="text-xs text-neutral-400">Opslaan...</p>
+            <p className="text-xs text-slate-400">Opslaan...</p>
           ) : saveError ? (
             <p className="text-xs text-red-600">{saveError}</p>
           ) : null}
@@ -138,21 +138,21 @@ export function LeadDetailPanel({
 
         {lead.research_output ? (
           <section className="mt-6 space-y-2 text-sm">
-            <h3 className="font-medium text-neutral-700">Research (3.2)</h3>
+            <h3 className="font-medium text-slate-700">Research (3.2)</h3>
             {lead.research_output.bedrijfsverhaal ? (
-              <p className="text-neutral-600">{lead.research_output.bedrijfsverhaal}</p>
+              <p className="text-slate-600">{lead.research_output.bedrijfsverhaal}</p>
             ) : (
-              <p className="text-neutral-400">Geen bedrijfsverhaal gevonden.</p>
+              <p className="text-slate-400">Geen bedrijfsverhaal gevonden.</p>
             )}
             {lead.research_output.kernfeiten.length > 0 ? (
-              <ul className="list-disc space-y-0.5 pl-5 text-neutral-600">
+              <ul className="list-disc space-y-0.5 pl-5 text-slate-600">
                 {lead.research_output.kernfeiten.map((feit, i) => (
                   <li key={i}>{feit}</li>
                 ))}
               </ul>
             ) : null}
             {lead.research_output.bronnen.length > 0 ? (
-              <ul className="space-y-0.5 pl-0 text-xs text-neutral-400">
+              <ul className="space-y-0.5 pl-0 text-xs text-slate-400">
                 {lead.research_output.bronnen.map((bron, i) => (
                   <li key={i} className="truncate">
                     {bron}
@@ -176,7 +176,7 @@ export function LeadDetailPanel({
             type="button"
             disabled
             title="Wordt gebouwd zodra de demo-preview met chatbox klaar is (build stap 7-8) — dit koppelt research + generatie + review tot één actie."
-            className="w-full rounded-md bg-neutral-200 px-3 py-2 text-sm font-medium text-neutral-500"
+            className="w-full rounded-xl bg-blue-50 px-3 py-2 text-sm font-medium text-slate-400"
           >
             {lead.status === "nieuw" ? "Genereer demo" : "Bekijk demo"}
           </button>

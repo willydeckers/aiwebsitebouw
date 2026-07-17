@@ -7,15 +7,15 @@ export default function LoginPage() {
   const [error, formAction, pending] = useActionState(signIn, null);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-neutral-50">
+    <div className="flex min-h-screen items-center justify-center p-4">
       <form
         action={formAction}
-        className="w-full max-w-sm space-y-4 rounded-lg border border-neutral-200 bg-white p-8 shadow-sm"
+        className="w-full max-w-sm space-y-4 rounded-3xl border border-white/60 bg-white/70 p-8 shadow-xl shadow-blue-200/40 backdrop-blur-xl"
       >
-        <h1 className="text-lg font-semibold text-neutral-900">Dashboard</h1>
+        <h1 className="text-lg font-semibold text-slate-900">Dashboard</h1>
 
         <div className="space-y-1">
-          <label htmlFor="email" className="text-sm text-neutral-600">
+          <label htmlFor="email" className="text-sm text-slate-600">
             E-mailadres
           </label>
           <input
@@ -24,12 +24,15 @@ export default function LoginPage() {
             type="email"
             required
             autoComplete="email"
-            className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500"
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="off"
+            className="w-full rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
           />
         </div>
 
         <div className="space-y-1">
-          <label htmlFor="password" className="text-sm text-neutral-600">
+          <label htmlFor="password" className="text-sm text-slate-600">
             Wachtwoord
           </label>
           <input
@@ -38,7 +41,8 @@ export default function LoginPage() {
             type="password"
             required
             autoComplete="current-password"
-            className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500"
+            spellCheck={false}
+            className="w-full rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
           />
         </div>
 
@@ -47,7 +51,7 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={pending}
-          className="w-full rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="w-full rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-md shadow-blue-300/50 transition hover:bg-blue-500 disabled:opacity-50"
         >
           {pending ? "Bezig..." : "Inloggen"}
         </button>

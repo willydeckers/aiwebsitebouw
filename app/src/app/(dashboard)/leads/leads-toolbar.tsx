@@ -26,7 +26,7 @@ export function LeadsToolbar({ activeStatus }: { activeStatus: string }) {
       <select
         value={activeStatus}
         onChange={(e) => handleStatusChange(e.target.value)}
-        className="rounded-md border border-neutral-300 px-3 py-2 text-sm"
+        className="rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-sm text-slate-900"
       >
         <option value="">Alle statussen</option>
         {LEAD_STATUSES.map((s) => (
@@ -38,7 +38,7 @@ export function LeadsToolbar({ activeStatus }: { activeStatus: string }) {
 
       <button
         onClick={() => setDialogOpen(true)}
-        className="rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white"
+        className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-md shadow-blue-300/50 transition hover:bg-blue-500"
       >
         + Lead toevoegen
       </button>
