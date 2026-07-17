@@ -10,6 +10,7 @@ import { ResearchButton } from "./research-button";
 import { GenerateButton } from "./generate-button";
 import { ReviewButton } from "./review-button";
 import { DemoPreview } from "./demo-preview";
+import { ConvertButton } from "./convert-button";
 
 export function LeadDetailPanel({ lead }: { lead: Lead }) {
   const router = useRouter();
@@ -66,6 +67,17 @@ export function LeadDetailPanel({ lead }: { lead: Lead }) {
           <p className="text-neutral-600">
             {lead.contact_email || "Geen contact e-mail"}
           </p>
+        </section>
+
+        <section className="mt-6">
+          {lead.klant_type ? (
+            <p className="text-sm text-neutral-600">
+              Klant — type: <span className="font-medium">{lead.klant_type}</span>
+              {lead.shopify_store_id ? ` (store: ${lead.shopify_store_id})` : ""}
+            </p>
+          ) : (
+            <ConvertButton leadId={lead.id} />
+          )}
         </section>
 
         <section className="mt-6">
