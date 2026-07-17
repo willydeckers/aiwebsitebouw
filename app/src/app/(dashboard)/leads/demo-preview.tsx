@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import type { Lead } from "@/lib/types";
 import { startGeneration } from "./generate-actions";
+import { startPatchEdit } from "./patch-actions";
 
 type Viewport = "desktop" | "mobiel";
 
@@ -12,12 +13,19 @@ const VIEWPORT_WIDTH: Record<Viewport, string> = {
   mobiel: "375px",
 };
 
+type ChatMessage = { role: "user" | "systeem"; text: string };
+
 export function DemoPreview({ lead }: { lead: Lead }) {
   const router = useRouter();
   const [viewport, setViewport] = useState<Viewport>("desktop");
   const [extraInstructies, setExtraInstructies] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  const [chatInput, setChatInput] = useState("");
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatPending, startChatTransition] = useTransition();
+  const [previewVersion, setPreviewVersion] = useState(0);
 
   function handleRegenerate() {
     setError(null);
@@ -31,6 +39,28 @@ export function DemoPreview({ lead }: { lead: Lead }) {
       }
     });
   }
+
+  function handleSendChat() {
+    const instruction = chatInput.trim();
+    if (!instruction) return;
+
+    setChatMessages((prev) => [...prev, { role: "user", text: instruction }]);
+    setChatInput("");
+
+    startChatTransition(async () => {
+      const result = await startPatchEdit(lead.id, instruction);
+      if (result) {
+        setChatMessages((prev) => [...prev, { role: "systeem", text: result }]);
+      } else {
+        setChatMessages((prev) => [...prev, { role: "systeem", text: "Wijziging doorgevoerd." }]);
+        setPreviewVersion((v) => v + 1);
+      }
+    });
+  }
+
+  const previewSrc = lead.demo_url
+    ? `${lead.demo_url}${lead.demo_url.includes("?") ? "&" : "?"}v=${previewVersion}`
+    : undefined;
 
   return (
     <section className="mt-6 space-y-3">
@@ -56,7 +86,7 @@ export function DemoPreview({ lead }: { lead: Lead }) {
 
       <div className="overflow-hidden rounded-md border border-neutral-200 bg-neutral-50">
         <iframe
-          src={lead.demo_url ?? undefined}
+          src={previewSrc}
           title="Demo-preview"
           className="h-[500px] bg-white transition-[width]"
           style={{ width: VIEWPORT_WIDTH[viewport] }}
@@ -86,16 +116,39 @@ export function DemoPreview({ lead }: { lead: Lead }) {
       ) : null}
 
       <div className="space-y-1">
-        <label htmlFor="chatbox" className="text-xs font-medium text-neutral-500">
-          Chat-based bewerken
-        </label>
-        <textarea
-          id="chatbox"
-          disabled
-          placeholder="Wordt gebouwd in build stap 8 (spec sectie 3.5) — gerichte patch-edits i.p.v. volledige herschrijving."
-          rows={2}
-          className="w-full rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-400"
-        />
+        <h4 className="text-xs font-medium text-neutral-500">Chat-based bewerken (3.5)</h4>
+
+        {chatMessages.length > 0 ? (
+          <ul className="max-h-32 space-y-1 overflow-y-auto rounded-md border border-neutral-200 p-2 text-xs">
+            {chatMessages.map((msg, i) => (
+              <li key={i} className={msg.role === "user" ? "text-neutral-800" : "text-neutral-500"}>
+                <span className="font-medium">{msg.role === "user" ? "Jij: " : "Systeem: "}</span>
+                {msg.text}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
+        <div className="flex gap-2">
+          <input
+            id="chatbox"
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSendChat();
+            }}
+            placeholder="bv. die kleur moet anders"
+            className="flex-1 rounded-md border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500"
+          />
+          <button
+            type="button"
+            onClick={handleSendChat}
+            disabled={chatPending}
+            className="rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
+            {chatPending ? "Bezig..." : "Verstuur"}
+          </button>
+        </div>
       </div>
 
       <div className="space-y-1">
