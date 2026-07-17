@@ -2,11 +2,14 @@
 
 import { useState } from "react";
 import { KlantenChatPanel } from "./klanten-chat-panel";
+import { StaffInviteButton } from "./staff-invite-button";
 
 export type KlantRow = {
   id: string;
   type: "statisch" | "shopify";
   site_status: string | null;
+  shopify_staff_account_status: string | null;
+  shopify_domain: string | null;
   lead: { bedrijfsnaam: string } | null;
 };
 
@@ -44,10 +47,30 @@ export function KlantenList({ klanten }: { klanten: KlantRow[] }) {
       </table>
 
       {selected ? (
-        <KlantenChatPanel
-          klantId={selected.id}
-          klantNaam={selected.lead?.bedrijfsnaam ?? "Onbekend"}
-        />
+        <>
+          {selected.type === "shopify" ? (
+            <div className="mt-4 flex flex-wrap items-start gap-4">
+              <StaffInviteButton
+                klantId={selected.id}
+                status={selected.shopify_staff_account_status}
+              />
+              {selected.shopify_domain ? (
+                <a
+                  href={`https://${selected.shopify_domain}/admin`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 text-sm text-blue-600 underline"
+                >
+                  Open in Shopify admin
+                </a>
+              ) : null}
+            </div>
+          ) : null}
+          <KlantenChatPanel
+            klantId={selected.id}
+            klantNaam={selected.lead?.bedrijfsnaam ?? "Onbekend"}
+          />
+        </>
       ) : null}
     </div>
   );

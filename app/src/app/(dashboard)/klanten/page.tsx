@@ -6,7 +6,9 @@ export default async function KlantenPage() {
 
   const { data: klanten, error } = await supabase
     .from("klanten")
-    .select("id, type, site_status, lead:leads(bedrijfsnaam)")
+    .select(
+      "id, type, site_status, shopify_staff_account_status, shopify_domain, lead:leads(bedrijfsnaam)",
+    )
     .order("id", { ascending: false });
 
   return (
