@@ -6,6 +6,7 @@ import type { Lead } from "@/lib/types";
 import { LEAD_PIPELINE, LEAD_STATUS_LABELS } from "@/lib/types";
 import { updateLeadNotities } from "./actions";
 import { StatusBadge } from "./status-badge";
+import { ResearchButton } from "./research-button";
 
 export function LeadDetailPanel({ lead }: { lead: Lead }) {
   const router = useRouter();
@@ -108,11 +109,40 @@ export function LeadDetailPanel({ lead }: { lead: Lead }) {
           ) : null}
         </section>
 
-        <section className="mt-6">
+        {lead.research_output ? (
+          <section className="mt-6 space-y-2 text-sm">
+            <h3 className="font-medium text-neutral-700">Research (3.2)</h3>
+            {lead.research_output.bedrijfsverhaal ? (
+              <p className="text-neutral-600">{lead.research_output.bedrijfsverhaal}</p>
+            ) : (
+              <p className="text-neutral-400">Geen bedrijfsverhaal gevonden.</p>
+            )}
+            {lead.research_output.kernfeiten.length > 0 ? (
+              <ul className="list-disc space-y-0.5 pl-5 text-neutral-600">
+                {lead.research_output.kernfeiten.map((feit, i) => (
+                  <li key={i}>{feit}</li>
+                ))}
+              </ul>
+            ) : null}
+            {lead.research_output.bronnen.length > 0 ? (
+              <ul className="space-y-0.5 pl-0 text-xs text-neutral-400">
+                {lead.research_output.bronnen.map((bron, i) => (
+                  <li key={i} className="truncate">
+                    {bron}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
+        ) : null}
+
+        <section className="mt-6 space-y-2">
+          <ResearchButton leadId={lead.id} />
+
           <button
             type="button"
             disabled
-            title="Wordt gebouwd zodra de research/generatie-pipeline klaar is."
+            title="Wordt gebouwd zodra de generatie-pipeline klaar is (build stap 5)."
             className="w-full rounded-md bg-neutral-200 px-3 py-2 text-sm font-medium text-neutral-500"
           >
             {lead.status === "nieuw" ? "Genereer demo" : "Bekijk demo"}

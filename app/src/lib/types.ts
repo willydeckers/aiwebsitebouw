@@ -36,6 +36,13 @@ export const LEAD_STATUS_LABELS: Record<LeadStatus, string> = {
   dood: "Dood",
 };
 
+export type ResearchOutput = {
+  bedrijfsverhaal: string | null;
+  kernfeiten: string[];
+  bronnen: string[];
+  logo_url: string | null;
+};
+
 export type Lead = {
   id: string;
   bedrijfsnaam: string;
@@ -48,6 +55,7 @@ export type Lead = {
   demo_url: string | null;
   klant_type: "statisch" | "shopify" | null;
   shopify_store_id: string | null;
+  research_output: ResearchOutput | null;
   laatste_update: string;
   aangemaakt_op: string;
 };
