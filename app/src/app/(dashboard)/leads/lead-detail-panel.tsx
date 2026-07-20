@@ -14,6 +14,7 @@ import { DemoPreview } from "./demo-preview";
 import { ConvertButton } from "./convert-button";
 import { CostSummaryView } from "./cost-summary-view";
 import { DeleteLeadButton } from "./delete-lead-button";
+import { VersionHistory } from "./version-history";
 
 export function LeadDetailPanel({
   lead,
@@ -27,23 +28,24 @@ export function LeadDetailPanel({
   const [notities, setNotities] = useState(lead.notities ?? "");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [siteVersion, setSiteVersion] = useState<SiteVersion | null>(null);
+  const [siteVersions, setSiteVersions] = useState<SiteVersion[]>([]);
   const [reviewLog, setReviewLog] = useState<ReviewLogEntry[]>([]);
   const [costSummary, setCostSummary] = useState<CostSummary | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
 
-    fetchCostSummary(supabase, lead.id).then(setCostSummary);
+    function loadSiteVersions() {
+      supabase
+        .from("site_versions")
+        .select("*")
+        .eq("lead_id", lead.id)
+        .order("versienummer", { ascending: false })
+        .then(({ data }) => setSiteVersions((data as SiteVersion[]) ?? []));
+    }
 
-    supabase
-      .from("site_versions")
-      .select("*")
-      .eq("lead_id", lead.id)
-      .order("versienummer", { ascending: false })
-      .limit(1)
-      .maybeSingle()
-      .then(({ data }) => setSiteVersion(data as SiteVersion | null));
+    fetchCostSummary(supabase, lead.id).then(setCostSummary);
+    loadSiteVersions();
 
     supabase
       .from("review_log")
@@ -53,13 +55,16 @@ export function LeadDetailPanel({
       .limit(5)
       .then(({ data }) => setReviewLog((data as ReviewLogEntry[]) ?? []));
 
-    // Spec section 2: Realtime on site_versions/review_log.
+    // Spec section 2: Realtime on site_versions/review_log. site_versions
+    // changes (activate/revert/new version) can touch more than one row at
+    // once, so a full refetch is simpler and less error-prone here than
+    // patching the array in place from a single-row payload.
     const channel = supabase
       .channel(`lead-detail-${lead.id}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "site_versions", filter: `lead_id=eq.${lead.id}` },
-        (payload) => setSiteVersion(payload.new as SiteVersion),
+        () => loadSiteVersions(),
       )
       .on(
         "postgres_changes",
@@ -85,15 +90,21 @@ export function LeadDetailPanel({
   const pipelineIndex = LEAD_PIPELINE.indexOf(lead.status);
   const isSideState = pipelineIndex === -1; // geblokkeerd / budget_overschreden / dood
 
+  const latestVersion = siteVersions[0] ?? null;
+  const actieveVersion = siteVersions.find((v) => v.status === "actief") ?? null;
+
   const demoHostingBase = process.env.NEXT_PUBLIC_DEMO_HOSTING_URL;
+  // Only a genuinely actieve version resolves on the public hosting route
+  // (track-and-serve returns 404 otherwise) — building the URL from any
+  // latest version would show a broken link before the first approval.
   const demoUrl =
-    siteVersion && demoHostingBase ? `${demoHostingBase}/${lead.id}` : null;
+    actieveVersion && demoHostingBase ? `${demoHostingBase}/${lead.id}` : null;
 
   return (
     <div className="fixed inset-0 z-10 flex justify-end bg-slate-900/20 backdrop-blur-sm">
       <div
         className={`h-full w-full overflow-y-auto border-l border-white/60 bg-white/80 p-6 shadow-xl shadow-blue-200/40 backdrop-blur-xl ${
-          siteVersion ? "max-w-3xl" : "max-w-md"
+          latestVersion ? "max-w-3xl" : "max-w-md"
         }`}
       >
         <div className="flex items-start justify-between">
@@ -196,23 +207,17 @@ export function LeadDetailPanel({
           </section>
         ) : null}
 
-        {siteVersion ? (
-          <section className="mt-6 text-sm">
-            <h3 className="font-medium text-slate-700">
-              Site-versie {siteVersion.versienummer} ({siteVersion.status})
-            </h3>
-          </section>
-        ) : null}
-
-        {siteVersion ? (
+        {latestVersion ? (
           <DemoPreview
             lead={lead}
             demoUrl={demoUrl}
-            siteVersion={siteVersion}
+            siteVersion={latestVersion}
             reviewLog={reviewLog}
             onChanged={onChanged}
           />
         ) : null}
+
+        <VersionHistory leadId={lead.id} versions={siteVersions} onChanged={onChanged} />
 
         {costSummary ? <CostSummaryView summary={costSummary} /> : null}
 
