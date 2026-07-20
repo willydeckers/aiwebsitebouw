@@ -60,18 +60,25 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="flex min-h-screen" style={{ backgroundColor: "var(--ui-bg, transparent)" }}>
-      <aside className="w-56 shrink-0 border-r border-white/60 bg-white/50 p-4 backdrop-blur-xl">
+    <div
+      className="flex min-h-screen gap-4 p-4"
+      style={{ backgroundColor: "var(--ui-bg, transparent)" }}
+    >
+      <aside className="w-56 shrink-0 rounded-3xl border border-white/70 bg-white/50 p-4 shadow-lg shadow-blue-200/30 backdrop-blur-2xl backdrop-saturate-150">
+        <p className="mb-4 px-2 text-sm font-semibold tracking-tight text-slate-800">
+          Web Agency
+        </p>
         <NavLinks />
       </aside>
 
-      <div className="flex flex-1 flex-col">
-        <header className="flex items-center justify-end border-b border-white/60 bg-white/40 px-6 py-3 backdrop-blur-xl">
+      <div className="flex flex-1 flex-col gap-4">
+        <header className="flex items-center justify-between rounded-full border border-white/70 bg-white/50 px-6 py-3 shadow-lg shadow-blue-200/30 backdrop-blur-2xl backdrop-saturate-150">
+          <p className="text-sm font-medium text-slate-600">Dashboard</p>
           <ProfileBubble user={session.user} />
         </header>
 
-        <main className="flex-1 p-6">
-          <div className="mx-auto max-w-6xl rounded-3xl border border-white/60 bg-white/60 p-6 shadow-lg shadow-blue-100/50 backdrop-blur-xl">
+        <main className="flex-1">
+          <div className="mx-auto h-full max-w-6xl rounded-3xl border border-white/70 bg-white/55 p-6 shadow-lg shadow-blue-200/30 backdrop-blur-2xl backdrop-saturate-150">
             {children}
           </div>
         </main>

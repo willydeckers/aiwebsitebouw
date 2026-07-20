@@ -19,11 +19,26 @@
 body {
   min-height: 100vh;
   background: var(--background);
-  background-image: radial-gradient(at top left, #dbeafe, transparent 60%),
-    radial-gradient(at bottom right, #bfdbfe, transparent 55%);
+  background-image: radial-gradient(at 15% 10%, #c7d9fb 0%, transparent 55%),
+    radial-gradient(at 85% 15%, #dbeafe 0%, transparent 50%),
+    radial-gradient(at 90% 90%, #cdd6f6 0%, transparent 55%),
+    radial-gradient(at 10% 95%, #bfdbfe 0%, transparent 50%),
+    linear-gradient(135deg, #eef3ff 0%, #eaf1ff 40%, #e7ecfb 100%);
   background-attachment: fixed;
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Shared "liquid glass" tile treatment — frosted, rounded, soft blue
+   shadow. Used for stat tiles / small dashboard cards outside the main
+   panel (which already has its own glass styling in the layout). */
+.glass-tile {
+  border-radius: 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  box-shadow: 0 8px 30px -12px rgba(37, 99, 235, 0.25);
 }
 
 input,
