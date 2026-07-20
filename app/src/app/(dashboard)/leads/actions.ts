@@ -1,7 +1,4 @@
-"use server";
-
-import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/client";
 
 export async function createLead(_prevState: string | null, formData: FormData) {
   const bedrijfsnaam = (formData.get("bedrijfsnaam") as string)?.trim();
@@ -15,7 +12,7 @@ export async function createLead(_prevState: string | null, formData: FormData) 
     return "Bedrijfsnaam en sector zijn verplicht.";
   }
 
-  const supabase = await createClient();
+  const supabase = createClient();
   const { error } = await supabase.from("leads").insert({
     bedrijfsnaam,
     sector,
@@ -23,18 +20,18 @@ export async function createLead(_prevState: string | null, formData: FormData) 
     contact_email,
     contact_naam,
     notities,
+    herkomst: "manueel",
   });
 
   if (error) {
     return `Aanmaken mislukt: ${error.message}`;
   }
 
-  revalidatePath("/leads");
   return null;
 }
 
 export async function updateLeadNotities(leadId: string, notities: string) {
-  const supabase = await createClient();
+  const supabase = createClient();
   const { error } = await supabase
     .from("leads")
     .update({ notities })
@@ -44,6 +41,5 @@ export async function updateLeadNotities(leadId: string, notities: string) {
     return `Opslaan mislukt: ${error.message}`;
   }
 
-  revalidatePath("/leads");
   return null;
 }

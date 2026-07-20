@@ -1,11 +1,15 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { convertToKlant } from "./convert-actions";
 
-export function ConvertButton({ leadId }: { leadId: string }) {
-  const router = useRouter();
+export function ConvertButton({
+  leadId,
+  onChanged,
+}: {
+  leadId: string;
+  onChanged: () => void;
+}) {
   const [choosing, setChoosing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -18,7 +22,7 @@ export function ConvertButton({ leadId }: { leadId: string }) {
         setError(result);
       } else {
         setChoosing(false);
-        router.refresh();
+        onChanged();
       }
     });
   }
@@ -37,7 +41,7 @@ export function ConvertButton({ leadId }: { leadId: string }) {
 
   return (
     <div className="space-y-1">
-      <p className="text-xs text-slate-500">Kies het type (spec sectie 3.8):</p>
+      <p className="text-xs text-slate-500">Kies het type (spec sectie 3.7 — eenrichtingsverkeer):</p>
       <div className="flex gap-2">
         <button
           type="button"

@@ -1,11 +1,15 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { startResearch } from "./research-actions";
 
-export function ResearchButton({ leadId }: { leadId: string }) {
-  const router = useRouter();
+export function ResearchButton({
+  leadId,
+  onChanged,
+}: {
+  leadId: string;
+  onChanged: () => void;
+}) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -16,7 +20,7 @@ export function ResearchButton({ leadId }: { leadId: string }) {
       if (result) {
         setError(result);
       } else {
-        router.refresh();
+        onChanged();
       }
     });
   }

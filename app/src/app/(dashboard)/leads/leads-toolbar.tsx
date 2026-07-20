@@ -5,7 +5,13 @@ import { useState } from "react";
 import { LEAD_STATUSES, LEAD_STATUS_LABELS } from "@/lib/types";
 import { AddLeadDialog } from "./add-lead-dialog";
 
-export function LeadsToolbar({ activeStatus }: { activeStatus: string }) {
+export function LeadsToolbar({
+  activeStatus,
+  onLeadCreated,
+}: {
+  activeStatus: string;
+  onLeadCreated: () => void;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -43,7 +49,11 @@ export function LeadsToolbar({ activeStatus }: { activeStatus: string }) {
         + Lead toevoegen
       </button>
 
-      <AddLeadDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
+      <AddLeadDialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        onCreated={onLeadCreated}
+      />
     </div>
   );
 }

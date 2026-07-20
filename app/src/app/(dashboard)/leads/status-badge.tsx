@@ -10,6 +10,7 @@ const STATUS_COLORS: Record<LeadStatus, string> = {
   geopend: "bg-purple-100 text-purple-700",
   klant: "bg-green-100 text-green-700",
   geblokkeerd: "bg-red-100 text-red-700",
+  budget_overschreden: "bg-red-100 text-red-700",
   dood: "bg-slate-200 text-slate-500",
 };
 

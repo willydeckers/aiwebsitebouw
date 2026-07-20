@@ -1,12 +1,18 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import type { Lead } from "@/lib/types";
 import { sendDemoEmail } from "./send-actions";
 
-export function SendDialog({ lead, onClose }: { lead: Lead; onClose: () => void }) {
-  const router = useRouter();
+export function SendDialog({
+  lead,
+  onClose,
+  onSent,
+}: {
+  lead: Lead;
+  onClose: () => void;
+  onSent: () => void;
+}) {
   const [subject, setSubject] = useState(`Jouw nieuwe website: ${lead.bedrijfsnaam}`);
   const [body, setBody] = useState(
     `Hallo${lead.contact_naam ? ` ${lead.contact_naam}` : ""},\n\n` +
@@ -23,7 +29,7 @@ export function SendDialog({ lead, onClose }: { lead: Lead; onClose: () => void 
         setError(result);
       } else {
         onClose();
-        router.refresh();
+        onSent();
       }
     });
   }

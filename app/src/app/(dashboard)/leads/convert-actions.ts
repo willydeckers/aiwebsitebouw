@@ -1,97 +1,51 @@
-"use server";
+import { createClient } from "@/lib/supabase/client";
 
-import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
-import { createDevelopmentStore } from "@/lib/shopify/create-dev-store";
-import type { Lead } from "@/lib/types";
-
-const UNIQUE_VIOLATION = "23505";
-
+/**
+ * Spec section 3.7/2: statisch conversion is a plain DB write (no secret
+ * needed). Shopify conversion enqueues a shopify_opbouw job — that's a
+ * "zware taak" per spec section 2, processed by the separate hosted
+ * worker (not an Edge Function), which creates the actual development
+ * store via the Shopify Partner API and then writes klanten/leads itself.
+ */
 export async function convertToKlant(
   leadId: string,
   type: "statisch" | "shopify",
 ): Promise<string | null> {
-  const supabase = await createClient();
-
-  const { data: leadRow, error: leadError } = await supabase
-    .from("leads")
-    .select("*")
-    .eq("id", leadId)
-    .single();
-
-  if (leadError || !leadRow) {
-    return `Lead niet gevonden: ${leadError?.message}`;
-  }
-
-  const lead = leadRow as Lead;
+  const supabase = createClient();
 
   if (type === "statisch") {
-    try {
-      await supabase.from("klanten").insert({
-        lead_id: leadId,
-        type: "statisch",
-        site_status: "Actief (statische demo als startpunt)",
-      });
+    const { error: klantError } = await supabase.from("klanten").insert({
+      lead_id: leadId,
+      type: "statisch",
+      site_status: "Actief (statische demo als startpunt)",
+    });
 
-      await supabase
-        .from("leads")
-        .update({ klant_type: "statisch", status: "klant" })
-        .eq("id", leadId);
-    } catch (err) {
-      return `Conversie mislukt: ${err instanceof Error ? err.message : String(err)}`;
+    if (klantError) {
+      return `Conversie mislukt: ${klantError.message}`;
     }
 
-    revalidatePath("/leads");
-    revalidatePath("/klanten");
+    const { error: leadError } = await supabase
+      .from("leads")
+      .update({ klant_type: "statisch", status: "klant" })
+      .eq("id", leadId);
+
+    if (leadError) {
+      return `Conversie mislukt: ${leadError.message}`;
+    }
+
     return null;
   }
 
-  const { data: job, error: jobError } = await supabase
+  const { error: jobError } = await supabase
     .from("jobs")
-    .insert({ lead_id: leadId, type: "build_shopify", status: "running" })
-    .select("id")
-    .single();
+    .insert({ lead_id: leadId, type: "shopify_opbouw", status: "wachtrij" });
 
   if (jobError) {
-    if (jobError.code === UNIQUE_VIOLATION) {
+    if (jobError.code === "23505") {
       return "Er loopt al een actieve job voor deze lead.";
     }
     return `Kon job niet aanmaken: ${jobError.message}`;
   }
 
-  try {
-    const { storeId, domain } = await createDevelopmentStore(`${lead.bedrijfsnaam} (demo)`);
-
-    await supabase.from("klanten").insert({
-      lead_id: leadId,
-      type: "shopify",
-      site_status: `Development store aangemaakt: ${domain}`,
-    });
-
-    await supabase
-      .from("leads")
-      .update({ klant_type: "shopify", shopify_store_id: storeId, status: "klant" })
-      .eq("id", leadId);
-
-    await supabase
-      .from("jobs")
-      .update({ status: "done", afgerond_op: new Date().toISOString() })
-      .eq("id", job.id);
-  } catch (err) {
-    await supabase
-      .from("jobs")
-      .update({
-        status: "failed",
-        error_message: err instanceof Error ? err.message : String(err),
-        afgerond_op: new Date().toISOString(),
-      })
-      .eq("id", job.id);
-
-    revalidatePath("/leads");
-    return `Conversie mislukt: ${err instanceof Error ? err.message : String(err)}`;
-  }
-
-  revalidatePath("/leads");
-  revalidatePath("/klanten");
   return null;
 }

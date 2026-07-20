@@ -6,9 +6,11 @@ import { createLead } from "./actions";
 export function AddLeadDialog({
   open,
   onClose,
+  onCreated,
 }: {
   open: boolean;
   onClose: () => void;
+  onCreated: () => void;
 }) {
   const [error, formAction, pending] = useActionState(createLead, null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -17,10 +19,11 @@ export function AddLeadDialog({
   useEffect(() => {
     if (wasPending.current && !pending && !error) {
       formRef.current?.reset();
+      onCreated();
       onClose();
     }
     wasPending.current = pending;
-  }, [pending, error, onClose]);
+  }, [pending, error, onClose, onCreated]);
 
   if (!open) return null;
 

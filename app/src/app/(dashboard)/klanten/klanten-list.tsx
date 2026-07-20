@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { KlantenChatPanel } from "./klanten-chat-panel";
 import { StaffInviteButton } from "./staff-invite-button";
 import { CostSummaryView } from "../leads/cost-summary-view";
-import { getCostSummary } from "../leads/cost-actions";
-import type { CostSummary } from "@/lib/costs";
+import { createClient } from "@/lib/supabase/client";
+import { fetchCostSummary, type CostSummary } from "@/lib/costs";
 
 export type KlantRow = {
   id: string;
@@ -16,7 +16,13 @@ export type KlantRow = {
   lead: { id: string; bedrijfsnaam: string } | null;
 };
 
-export function KlantenList({ klanten }: { klanten: KlantRow[] }) {
+export function KlantenList({
+  klanten,
+  onChanged,
+}: {
+  klanten: KlantRow[];
+  onChanged: () => void;
+}) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [costSummary, setCostSummary] = useState<CostSummary | null>(null);
   const selected = klanten.find((k) => k.id === selectedId) ?? null;
@@ -26,7 +32,8 @@ export function KlantenList({ klanten }: { klanten: KlantRow[] }) {
       return;
     }
     let cancelled = false;
-    getCostSummary(selected.lead.id).then((summary) => {
+    const supabase = createClient();
+    fetchCostSummary(supabase, selected.lead.id).then((summary) => {
       if (!cancelled) setCostSummary(summary);
     });
     return () => {
@@ -70,6 +77,7 @@ export function KlantenList({ klanten }: { klanten: KlantRow[] }) {
               <StaffInviteButton
                 klantId={selected.id}
                 status={selected.shopify_staff_account_status}
+                onChanged={onChanged}
               />
               {selected.shopify_domain ? (
                 <a

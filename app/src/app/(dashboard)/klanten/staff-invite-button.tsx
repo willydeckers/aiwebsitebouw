@@ -1,17 +1,17 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { generateStaffInvite } from "./staff-actions";
 
 export function StaffInviteButton({
   klantId,
   status,
+  onChanged,
 }: {
   klantId: string;
   status: string | null;
+  onChanged: () => void;
 }) {
-  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -22,7 +22,7 @@ export function StaffInviteButton({
       if (result) {
         setError(result);
       } else {
-        router.refresh();
+        onChanged();
       }
     });
   }

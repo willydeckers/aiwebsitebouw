@@ -1,8 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import type { Lead } from "@/lib/types";
+import type { Lead, ReviewLogEntry, SiteVersion } from "@/lib/types";
 import { startGeneration } from "./generate-actions";
 import { startPatchEdit } from "./patch-actions";
 import { SendDialog } from "./send-dialog";
@@ -16,8 +15,19 @@ const VIEWPORT_WIDTH: Record<Viewport, string> = {
 
 type ChatMessage = { role: "user" | "systeem"; text: string };
 
-export function DemoPreview({ lead }: { lead: Lead }) {
-  const router = useRouter();
+export function DemoPreview({
+  lead,
+  demoUrl,
+  siteVersion,
+  reviewLog,
+  onChanged,
+}: {
+  lead: Lead;
+  demoUrl: string | null;
+  siteVersion: SiteVersion;
+  reviewLog: ReviewLogEntry[];
+  onChanged: () => void;
+}) {
   const [viewport, setViewport] = useState<Viewport>("desktop");
   const [extraInstructies, setExtraInstructies] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +47,7 @@ export function DemoPreview({ lead }: { lead: Lead }) {
         setError(result);
       } else {
         setExtraInstructies("");
-        router.refresh();
+        onChanged();
       }
     });
   }
@@ -56,12 +66,13 @@ export function DemoPreview({ lead }: { lead: Lead }) {
       } else {
         setChatMessages((prev) => [...prev, { role: "systeem", text: "Wijziging doorgevoerd." }]);
         setPreviewVersion((v) => v + 1);
+        onChanged();
       }
     });
   }
 
-  const previewSrc = lead.demo_url
-    ? `${lead.demo_url}${lead.demo_url.includes("?") ? "&" : "?"}v=${previewVersion}`
+  const previewSrc = demoUrl
+    ? `${demoUrl}${demoUrl.includes("?") ? "&" : "?"}v=${previewVersion}`
     : undefined;
 
   return (
@@ -87,33 +98,29 @@ export function DemoPreview({ lead }: { lead: Lead }) {
       </div>
 
       <div className="overflow-hidden rounded-xl border border-blue-100 bg-blue-50/60">
-        <iframe
-          src={previewSrc}
-          title="Demo-preview"
-          className="h-[500px] bg-white/80 transition-[width]"
-          style={{ width: VIEWPORT_WIDTH[viewport] }}
-        />
+        {previewSrc ? (
+          <iframe
+            src={previewSrc}
+            title="Demo-preview"
+            className="h-[500px] bg-white/80 transition-[width]"
+            style={{ width: VIEWPORT_WIDTH[viewport] }}
+          />
+        ) : (
+          <p className="p-4 text-xs text-slate-400">
+            Publieke hosting-URL nog niet beschikbaar (spec sectie 2 — de aparte hosting Edge
+            Function is nog niet gedeployed). Storage-pad: {siteVersion.content_referentie ?? "—"}
+          </p>
+        )}
       </div>
 
-      {lead.review_notitie ? (
+      {reviewLog.length > 0 ? (
         <div className="space-y-1 text-sm">
-          <h4 className="font-medium text-slate-700">Review-notities (3.4)</h4>
-          <p className="text-slate-600">
-            {lead.review_notitie.goedgekeurd ? "Goedgekeurd" : "Niet goedgekeurd"} na{" "}
-            {lead.review_notitie.iteraties} iteratie
-            {lead.review_notitie.iteraties === 1 ? "" : "s"}
-          </p>
-          {lead.review_notitie.feedback ? (
-            <p className="text-slate-600">{lead.review_notitie.feedback}</p>
-          ) : null}
-          {lead.review_notitie.mist.length > 0 ? (
-            <p className="text-slate-600">Ontbreekt: {lead.review_notitie.mist.join("; ")}</p>
-          ) : null}
-          {lead.review_notitie.klopt_niet.length > 0 ? (
-            <p className="text-slate-600">
-              Klopt niet: {lead.review_notitie.klopt_niet.join("; ")}
+          <h4 className="font-medium text-slate-700">Review-log (3.4)</h4>
+          {reviewLog.map((entry) => (
+            <p key={entry.id} className="text-slate-600">
+              [{entry.bron}] {entry.instructie_of_bevinding ?? entry.resultaat ?? entry.error_message}
             </p>
-          ) : null}
+          ))}
         </div>
       ) : null}
 
@@ -193,7 +200,7 @@ export function DemoPreview({ lead }: { lead: Lead }) {
       </button>
 
       {sendDialogOpen ? (
-        <SendDialog lead={lead} onClose={() => setSendDialogOpen(false)} />
+        <SendDialog lead={lead} onClose={() => setSendDialogOpen(false)} onSent={onChanged} />
       ) : null}
     </section>
   );

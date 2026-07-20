@@ -1,11 +1,15 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { startGeneration } from "./generate-actions";
 
-export function GenerateButton({ leadId }: { leadId: string }) {
-  const router = useRouter();
+export function GenerateButton({
+  leadId,
+  onChanged,
+}: {
+  leadId: string;
+  onChanged: () => void;
+}) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -16,7 +20,7 @@ export function GenerateButton({ leadId }: { leadId: string }) {
       if (result) {
         setError(result);
       } else {
-        router.refresh();
+        onChanged();
       }
     });
   }

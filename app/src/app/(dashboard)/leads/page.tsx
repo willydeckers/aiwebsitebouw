@@ -1,35 +1,56 @@
-import { createClient } from "@/lib/supabase/server";
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 import type { Lead, LeadStatus } from "@/lib/types";
-import { fetchCostSummary } from "@/lib/costs";
 import { LeadsToolbar } from "./leads-toolbar";
 import { LeadsTable } from "./leads-table";
 import { LeadDetailPanel } from "./lead-detail-panel";
 
-export default async function LeadsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ status?: string; lead?: string }>;
-}) {
-  const { status, lead: selectedLeadId } = await searchParams;
+export default function LeadsPage() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const status = searchParams.get("status") ?? "";
+  const selectedLeadId = searchParams.get("lead");
 
-  const supabase = await createClient();
+  const [leads, setLeads] = useState<Lead[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  let query = supabase
-    .from("leads")
-    .select("*")
-    .order("aangemaakt_op", { ascending: false });
+  const loadLeads = useCallback(() => {
+    const supabase = createClient();
+    let query = supabase.from("leads").select("*").order("aangemaakt_op", { ascending: false });
+    if (status) query = query.eq("status", status as LeadStatus);
 
-  if (status) {
-    query = query.eq("status", status as LeadStatus);
-  }
+    query.then(({ data, error }) => {
+      if (error) setError(error.message);
+      else {
+        setError(null);
+        setLeads(data as Lead[]);
+      }
+    });
+  }, [status]);
 
-  const { data: leads, error } = await query;
+  useEffect(() => {
+    loadLeads();
+
+    // Spec section 2 only names jobs/site_versions/review_log for Realtime,
+    // but a job finishing is exactly what changes a lead's status — so a
+    // jobs change is the signal to refresh the leads list too.
+    const supabase = createClient();
+    const channel = supabase
+      .channel("leads-page-jobs")
+      .on("postgres_changes", { event: "*", schema: "public", table: "jobs" }, () => loadLeads())
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loadLeads]);
 
   const selectedLead = selectedLeadId
     ? (leads ?? []).find((l) => l.id === selectedLeadId) ?? null
     : null;
-
-  const costSummary = selectedLead ? await fetchCostSummary(supabase, selectedLead.id) : null;
 
   return (
     <div>
@@ -37,18 +58,27 @@ export default async function LeadsPage({
         <h1 className="text-lg font-semibold text-slate-900">Leads</h1>
       </div>
 
-      <LeadsToolbar activeStatus={status ?? ""} />
+      <LeadsToolbar activeStatus={status} onLeadCreated={loadLeads} />
 
       {error ? (
-        <p className="mt-4 text-sm text-red-600">
-          Kon leads niet laden: {error.message}
-        </p>
+        <p className="mt-4 text-sm text-red-600">Kon leads niet laden: {error}</p>
+      ) : leads === null ? (
+        <p className="mt-6 text-sm text-slate-500">Laden...</p>
       ) : (
-        <LeadsTable leads={(leads ?? []) as Lead[]} />
+        <LeadsTable leads={leads} />
       )}
 
       {selectedLead ? (
-        <LeadDetailPanel lead={selectedLead as Lead} costSummary={costSummary} />
+        <LeadDetailPanel
+          key={selectedLead.id}
+          lead={selectedLead}
+          onChanged={loadLeads}
+          onClose={() => {
+            const params = new URLSearchParams(searchParams.toString());
+            params.delete("lead");
+            router.push(`/leads${params.toString() ? `?${params.toString()}` : ""}`);
+          }}
+        />
       ) : null}
     </div>
   );
