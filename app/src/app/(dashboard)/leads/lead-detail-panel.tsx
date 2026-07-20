@@ -13,6 +13,7 @@ import { ReviewButton } from "./review-button";
 import { DemoPreview } from "./demo-preview";
 import { ConvertButton } from "./convert-button";
 import { CostSummaryView } from "./cost-summary-view";
+import { DeleteLeadButton } from "./delete-lead-button";
 
 export function LeadDetailPanel({
   lead,
@@ -219,6 +220,16 @@ export function LeadDetailPanel({
           <ResearchButton leadId={lead.id} onChanged={onChanged} />
           <GenerateButton leadId={lead.id} onChanged={onChanged} />
           <ReviewButton leadId={lead.id} onChanged={onChanged} />
+        </section>
+
+        <section className="mt-6 border-t border-slate-100 pt-4">
+          <DeleteLeadButton
+            leadId={lead.id}
+            onDeleted={() => {
+              onChanged();
+              onClose();
+            }}
+          />
         </section>
       </div>
     </div>

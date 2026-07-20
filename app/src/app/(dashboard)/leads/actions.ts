@@ -43,3 +43,23 @@ export async function updateLeadNotities(leadId: string, notities: string) {
 
   return null;
 }
+
+// Storage cleanup (spec section 6/7/9) can't happen from the client — it
+// needs to list+remove every Storage object for this lead before the row
+// itself goes away, so this delegates to the cleanup-storage Edge Function
+// rather than a plain `.delete()` call.
+export async function deleteLead(leadId: string): Promise<string | null> {
+  const supabase = createClient();
+  const { data, error } = await supabase.functions.invoke("cleanup-storage", {
+    body: { leadId },
+  });
+
+  if (error) {
+    return `Verwijderen mislukt: ${error.message}`;
+  }
+  if (data?.error) {
+    return data.error as string;
+  }
+
+  return null;
+}

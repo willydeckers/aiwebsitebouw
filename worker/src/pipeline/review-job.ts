@@ -69,9 +69,22 @@ export async function processReviewJob(supabase: SupabaseClient, jobId: string, 
     });
 
     if (result.goedgekeurd) {
-      // "Nooit automatisch gepubliceerd" (3.6/3.7/3.8) — approval finalizes
-      // the version, it does not promote it to actief on its own.
-      await supabase.from("site_versions").update({ status: "afgerond" }).eq("id", siteVersion.id);
+      // Spec 3.5: "Eén concept-versie + (na eerste afronding) één actieve
+      // versie" — the very first approval for a lead has no existing
+      // actief row to conflict with, so it becomes actief directly (that's
+      // what makes the demo link send-email builds actually resolve to
+      // something). Later approvals (an actief row already exists) land on
+      // afgerond and wait for the explicit "Maak deze actief" action
+      // (3.8) so publishing a revision is never automatic.
+      const { data: existingActief } = await supabase
+        .from("site_versions")
+        .select("id")
+        .eq("lead_id", leadId)
+        .eq("status", "actief")
+        .maybeSingle();
+
+      const nieuweStatus = existingActief ? "afgerond" : "actief";
+      await supabase.from("site_versions").update({ status: nieuweStatus }).eq("id", siteVersion.id);
       return;
     }
 

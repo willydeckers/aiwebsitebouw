@@ -2,10 +2,7 @@ import { handleCorsPreflight, corsHeaders } from "../_shared/cors.ts";
 import { requireUser } from "../_shared/supabase-clients.ts";
 import { decryptToken } from "../_shared/crypto.ts";
 import { sendGmail } from "../_shared/gmail.ts";
-
-function gebruikerFromEmail(email: string | undefined): "warre" | "garen" {
-  return email?.toLowerCase().includes("garen") ? "garen" : "warre";
-}
+import { gebruikerFromEmail } from "../_shared/gebruiker.ts";
 
 Deno.serve(async (req) => {
   const preflight = handleCorsPreflight(req);
