@@ -48,6 +48,12 @@ Deno.serve(async (req) => {
       .from("leads")
       .update({ status: "verzonden", laatst_bewerkt_door: user.email })
       .eq("id", leadId);
+    await supabase.from("audit_log").insert({
+      gebruiker: user.email ?? "onbekend",
+      actie: "lead_verstuurd",
+      lead_id: leadId,
+      detail: { onderwerp: subject },
+    });
 
     return new Response(JSON.stringify({ ok: true }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

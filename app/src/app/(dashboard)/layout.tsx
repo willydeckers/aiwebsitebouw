@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
+import { applyUiPreset, getStoredPresetId } from "@/lib/ui-preset";
 import { NavLinks } from "./nav-links";
 import { ProfileBubble } from "./profile-bubble";
 
@@ -37,6 +38,19 @@ export default function DashboardLayout({
     return () => subscription.unsubscribe();
   }, [router]);
 
+  useEffect(() => {
+    const presetId = getStoredPresetId();
+    if (!presetId) return;
+
+    const supabase = createClient();
+    supabase
+      .from("ui_presets")
+      .select("achtergrondkleur, accentkleur")
+      .eq("id", presetId)
+      .maybeSingle()
+      .then(({ data }) => applyUiPreset(data));
+  }, []);
+
   if (session === "loading" || !session) {
     return (
       <div className="flex min-h-screen items-center justify-center text-sm text-slate-500">
@@ -46,7 +60,7 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen" style={{ backgroundColor: "var(--ui-bg, transparent)" }}>
       <aside className="w-56 shrink-0 border-r border-white/60 bg-white/50 p-4 backdrop-blur-xl">
         <NavLinks />
       </aside>

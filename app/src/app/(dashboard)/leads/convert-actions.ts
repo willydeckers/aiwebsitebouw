@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
+import { logAudit } from "@/lib/audit";
 
 /**
  * Spec section 3.7/2: statisch conversion is a plain DB write (no secret
@@ -33,6 +34,8 @@ export async function convertToKlant(
       return `Conversie mislukt: ${leadError.message}`;
     }
 
+    await logAudit("lead_geconverteerd", leadId, { type: "statisch" });
+
     return null;
   }
 
@@ -46,6 +49,11 @@ export async function convertToKlant(
     }
     return `Kon job niet aanmaken: ${jobError.message}`;
   }
+
+  // Not "lead_geconverteerd" here — the shopify_opbouw job hasn't run yet,
+  // this only enqueues it (worker/src/pipeline/shopify-build-job.ts does
+  // the actual conversion once it picks the job up).
+  await logAudit("lead_conversie_gestart", leadId, { type: "shopify" });
 
   return null;
 }

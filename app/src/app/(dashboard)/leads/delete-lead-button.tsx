@@ -5,9 +5,11 @@ import { deleteLead } from "./actions";
 
 export function DeleteLeadButton({
   leadId,
+  bedrijfsnaam,
   onDeleted,
 }: {
   leadId: string;
+  bedrijfsnaam: string;
   onDeleted: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
@@ -17,7 +19,7 @@ export function DeleteLeadButton({
   function handleConfirm() {
     setError(null);
     startTransition(async () => {
-      const result = await deleteLead(leadId);
+      const result = await deleteLead(leadId, bedrijfsnaam);
       if (result) {
         setError(result);
       } else {

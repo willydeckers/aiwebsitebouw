@@ -23,10 +23,9 @@ export function NavLinks() {
           <Link
             key={href}
             href={href}
+            style={active ? { backgroundColor: "var(--ui-accent, #2563eb)" } : undefined}
             className={`block rounded-xl px-3 py-2 text-sm font-medium transition ${
-              active
-                ? "bg-blue-600 text-white shadow-md shadow-blue-300/50"
-                : "text-slate-700 hover:bg-blue-100/60"
+              active ? "text-white shadow-md shadow-blue-300/50" : "text-slate-700 hover:bg-blue-100/60"
             }`}
           >
             {label}

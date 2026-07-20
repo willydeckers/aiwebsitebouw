@@ -155,6 +155,11 @@ Deno.serve(async (req) => {
 
     await supabase.from("sourcing_config").update({ laatst_uitgevoerd_op: new Date().toISOString() }).eq("id", config.id);
     await supabase.from("jobs").update({ status: "klaar", afgerond_op: new Date().toISOString() }).eq("id", job.id);
+    await supabase.from("audit_log").insert({
+      gebruiker: user.email ?? "onbekend",
+      actie: "sourcing_run_afgerond",
+      detail: { aangemaakt },
+    });
 
     return new Response(JSON.stringify({ ok: true, aangemaakt }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

@@ -230,6 +230,7 @@ export function LeadDetailPanel({
         <section className="mt-6 border-t border-slate-100 pt-4">
           <DeleteLeadButton
             leadId={lead.id}
+            bedrijfsnaam={lead.bedrijfsnaam}
             onDeleted={() => {
               onChanged();
               onClose();

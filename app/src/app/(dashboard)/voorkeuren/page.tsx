@@ -7,6 +7,7 @@ import {
   fetchOwnGmailKoppeling,
   type GmailKoppeling,
 } from "./gmail-actions";
+import { UiPresetsPanel } from "./ui-presets-panel";
 
 const STATUS_LABELS: Record<GmailKoppeling["status"], string> = {
   actief: "Gekoppeld",
@@ -74,6 +75,8 @@ export default function VoorkeurenPage() {
           </button>
         )}
       </section>
+
+      <UiPresetsPanel />
 
       <p className="mt-6 text-sm text-slate-500">
         Tabs Stijlvoorkeuren / Sectorkennis volgen (spec sectie 4.9).
