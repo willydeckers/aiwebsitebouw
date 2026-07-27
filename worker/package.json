@@ -8,7 +8,9 @@
     "start": "tsx src/index.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test:site-builder": "tsx scripts/test-site-builder.ts"
+    "test:site-builder": "tsx scripts/test-site-builder.ts",
+    "test:site-widgets": "tsx scripts/test-site-widgets.ts",
+    "test": "npm run test:site-builder && npm run test:site-widgets"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.1",

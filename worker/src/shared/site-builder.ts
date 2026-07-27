@@ -2,9 +2,18 @@
 // een echte meerpagina-site).
 //
 // Duplicated verbatim from supabase/functions/_shared/site-builder.ts — see
-// the note in that file (and in generate-demo.ts) on why there is no shared
-// module across the Deno/Node boundary. Apart from this header the two files
-// are byte-identical; keep them that way by hand.
+// the note in that file on why there is no shared module across the Deno/Node
+// boundary. The two copies differ in exactly two places: this header, and the
+// import specifier below. Everything else is byte-identical.
+
+import {
+  WIDGET_PROMPT,
+  WIDGET_RUNTIME,
+  controleerGeenEigenScripts,
+  controleerWidgets,
+  vulEndpointsIn,
+  type WidgetProbleem,
+} from "./site-widgets.js";
 //
 // Why the model doesn't just emit N finished HTML files: it can't be trusted to
 // repeat a navigation bar and footer byte-for-byte across four pages, nor to
@@ -171,6 +180,12 @@ export function knipNaLaatsteVolledigeSectie(tekst: string): string {
 
 const EXTERN_PATROON = /^(https?:|mailto:|tel:|data:|javascript:|\/\/)/i;
 
+/** Uploaded downloads live beside the pages in the version folder. They're
+ *  internal links but not page links, so page resolution has to leave them
+ *  alone — they get their own existence check in bouwSite. */
+export const BESTANDEN_MAP = "bestanden";
+const BESTAND_LINK_PATROON = new RegExp(`^\\.?/?${BESTANDEN_MAP}/(.+)$`, "i");
+
 function slug(waarde: string): string {
   return waarde
     .toLowerCase()
@@ -189,6 +204,7 @@ function resolveHref(href: string, paginas: PaginaMeta[]): string | null | undef
   const trimmed = href.trim();
   if (!trimmed || trimmed === "#" || trimmed.startsWith("#")) return null;
   if (EXTERN_PATROON.test(trimmed)) return null;
+  if (BESTAND_LINK_PATROON.test(trimmed)) return null;
 
   const hashIndex = trimmed.indexOf("#");
   const hash = hashIndex === -1 ? "" : trimmed.slice(hashIndex);
@@ -326,7 +342,22 @@ function escapeHtml(waarde: string): string {
  * Every page gets the exact same head, nav and footer strings — that identity
  * is what makes requirement "consistent nav/footer" hold by construction.
  */
-export function bouwSite(bron: SiteBron, bedrijfsnaam: string): GebouwdePagina[] {
+export type BouwOpties = {
+  /** Used to fill in the hosting endpoints on form/review widgets. */
+  leadId?: string;
+  /** Names of the files uploaded for this lead, e.g. ["brochure.pdf"]. A
+   *  download link to anything not in this list fails the build — the same
+   *  rule as page links, for the same reason. Undefined = don't check (a
+   *  caller that doesn't know the file list yet). */
+  bestanden?: string[];
+};
+
+export function bouwSite(
+  bron: SiteBron,
+  bedrijfsnaam: string,
+  opties: BouwOpties = {},
+): GebouwdePagina[] {
+  const { leadId, bestanden } = opties;
   if (!bron.paginas.some((p) => p.bestand === "index.html")) {
     throw new SiteBuildError("De site heeft geen index.html — dat is verplicht als startpagina.");
   }
@@ -372,6 +403,49 @@ export function bouwSite(bron: SiteBron, bedrijfsnaam: string): GebouwdePagina[]
     );
   }
 
+  // Download links point at files the user uploaded for this lead, not at
+  // pages — so they skip page resolution above and get checked here instead.
+  if (bestanden) {
+    const gevraagd = new Set<string>();
+    for (const html of [navResultaat.html, footerResultaat.html, ...Object.values(bodies)]) {
+      for (const tag of html.match(ANKER_PATROON) ?? []) {
+        const href = hrefVan(tag);
+        const match = href === null ? null : BESTAND_LINK_PATROON.exec(href.trim());
+        if (match) gevraagd.add(decodeURIComponent(match[1].split("?")[0]));
+      }
+    }
+    const ontbrekend = [...gevraagd].filter((naam) => !bestanden.includes(naam));
+    if (ontbrekend.length) {
+      throw new SiteBuildError(
+        `Links naar niet-bestaande downloads: ${ontbrekend.join(", ")}. ` +
+          `Beschikbare bestanden: ${bestanden.length ? bestanden.join(", ") : "(geen)"}.`,
+      );
+    }
+  }
+
+  // Widgets are checked against their markup contract here, for the same
+  // reason links are: a tabs block whose buttons point at panels that don't
+  // exist looks perfectly fine in a screenshot and is dead on click.
+  const problemen: WidgetProbleem[] = [
+    ...controleerGeenEigenScripts("HEAD", bron.head, true),
+    ...controleerGeenEigenScripts("NAV", navResultaat.html, false),
+    ...controleerGeenEigenScripts("FOOTER", footerResultaat.html, false),
+    ...controleerWidgets("NAV", navResultaat.html),
+    ...controleerWidgets("FOOTER", footerResultaat.html),
+  ];
+  for (const pagina of bron.paginas) {
+    problemen.push(
+      ...controleerGeenEigenScripts(pagina.bestand, bodies[pagina.bestand], false),
+      ...controleerWidgets(pagina.bestand, bodies[pagina.bestand]),
+    );
+  }
+  if (problemen.length) {
+    throw new SiteBuildError(
+      "Problemen met interactieve blokken:\n" +
+        problemen.map((p) => `- [${p.bestand}] ${p.widget}: ${p.reden}`).join("\n"),
+    );
+  }
+
   return bron.paginas.map((pagina) => {
     const nav = markeerActievePagina(navResultaat.html, pagina.bestand);
     if (nav.gemarkeerd === 0) {
@@ -380,7 +454,7 @@ export function bouwSite(bron: SiteBron, bedrijfsnaam: string): GebouwdePagina[]
       );
     }
 
-    return {
+    const gebouwd = {
       bestand: pagina.bestand,
       titel: pagina.titel,
       html: [
@@ -398,11 +472,20 @@ export function bouwSite(bron: SiteBron, bedrijfsnaam: string): GebouwdePagina[]
         nav.html,
         bodies[pagina.bestand],
         footerResultaat.html,
+        // Last thing before </body>, so every element a widget binds to
+        // already exists by the time it runs — no widget depends on where the
+        // model happened to place anything.
+        WIDGET_RUNTIME,
         "</body>",
         "</html>",
         "",
       ].join("\n"),
     };
+
+    // The model never writes a hosting URL into the markup: the builder knows
+    // the lead id, and this keeps working when the custom domain from spec
+    // section 2 replaces the raw function URL.
+    return leadId ? { ...gebouwd, html: vulEndpointsIn(gebouwd.html, leadId) } : gebouwd;
   });
 }
 
@@ -458,4 +541,6 @@ Harde regels voor het paginasysteem:
   Zet niet alles op de home en laat de rest leeg, maar geef de home wel een overzicht met
   doorkliks naar de diepere pagina's.
 - Contactgegevens (adres, telefoon, e-mail, openingsuren) horen volledig op contact.html en
-  verkort in de footer.`;
+  verkort in de footer.
+
+${WIDGET_PROMPT}`;
