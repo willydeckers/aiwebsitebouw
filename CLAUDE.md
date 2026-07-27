@@ -65,6 +65,12 @@ deployment, live-credential verification, and a couple of deliberately-external 
   - Even via `npx tsx`, Chromium launches are intermittently flaky here (resource pressure
     from everything else running in this dev environment, most likely) — `takeScreenshot()`
     now retries a launch failure up to 3x before giving up (`worker/src/shared/screenshot.ts`).
+  - The worker needs its own `worker/.env` (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
+    `ANTHROPIC_API_KEY`) — this didn't exist anywhere in the repo before 2026-07-26 (correctly
+    gitignored, but also never documented as a setup step to actually create it). Start with
+    `npx tsx --env-file=.env src/index.ts` from `worker/`. Get the service-role key via
+    `supabase projects api-keys --project-ref <ref>`, not from `app/.env.local` (that file's
+    copy of it was left empty).
 - **KBO Open Data import**: still not started for real. Two rows were seeded directly into
   `kbo_ondernemingen` on 2026-07-24 purely as sourcing-run test fixtures (fictional
   florists in Peer/Hechtel-Eksel) — that's test data exercising the pipeline, not a step
@@ -165,6 +171,64 @@ untested here (no custom domain set up). Net effect: everything that reads the d
 programmatically (the app's own previews, the worker's screenshots) works correctly; a lead
 clicking the literal `track-and-serve` URL in a real browser today would not. Get a custom
 domain mapped before relying on this link in a real outreach email.
+
+## 2026-07-26 — second E2E round: an auto-sourced florist + Tuinbouw Hendrix re-verified
+
+Re-ran the pipeline live against **Bloemenatelier Verbeeck** (already-sourced, unprocessed
+florist lead from the 2026-07-24 sourcing-run fixtures — re-running sourcing-run itself first
+correctly found 0 new candidates, since the KBO staging table still only has the two seeded
+test rows) and re-verified **Tuinbouw Hendrix**'s existing approved site. Found and fixed three
+more real bugs, and hit the same external blocker as before at the end:
+
+1. **`research` had the same status-regression bug `generatie` was already fixed for**: it
+   unconditionally set `leads.status = "research"` on every run, with no guard against
+   regressing a lead that had already progressed past it. Concretely: Tuinbouw Hendrix's status
+   was stuck on `research` despite already having an approved, active site — a legitimate
+   re-research (testing the `web_fetch` completeness work) had dragged it backwards, and nothing
+   ever moved it forward again. Fixed with the same guard `generatie` already had; the one
+   already-stuck lead was corrected directly via SQL (not by re-running anything).
+2. **The real one — client-specific chat-edit instructions were leaking into every other
+   client's generation.** `chat-edit-static` persists every applied instruction verbatim into
+   the *global* `stijlvoorkeuren` table, and `generatie` applies every row in that table to
+   *every* lead, unconditionally. An earlier chat-edit on Tuinbouw Hendrix ("look at
+   tuinen-hendrix.be and use their services") got saved there and then silently applied to
+   Bloemenatelier Verbeeck — an unrelated flower shop — during this test. The AI reviewer
+   correctly flagged the mismatch every time and blocked the lead. Fixed by adding a separate
+   `onthoud_als_algemene_stijlvoorkeur` tool the model only calls when it judges a change to be
+   a genuinely general, client-independent style rule (with its own generalized phrasing, no
+   client names/URLs) — client-specific instructions still apply to the current lead but no
+   longer get persisted globally. The one bad row already in the live table was deleted.
+3. **generatie was picking Unsplash image URLs from memory, and that's unreliable in two
+   distinct ways** — both observed live in Verbeeck's rejected reviews: some invented photo IDs
+   don't resolve at all (broken image, visible alt-text in the screenshot), and some resolve to
+   a *real* photo that isn't what the model thought — a "seasonal bouquet" card that showed a
+   tropical beach, an "interior greenery" card that showed beer taps. Fixed with a small curated
+   image bank (`supabase/functions/_shared/image-bank.ts`, duplicated into
+   `worker/src/pipeline/generate-demo.ts`) — every URL was actually downloaded and visually
+   inspected before being added (not just checked for a 200 status), and the prompt now requires
+   picking from this list or falling back to a plain color block, instead of guessing new IDs.
+   (Confirmed `source.unsplash.com`'s keyword-based random-photo endpoint is dead — 503 — so
+   that wasn't available as an easier fix.)
+
+After fix #3, re-ran Verbeeck's generation + review from scratch — got through generatie cleanly
+with the new image bank, but the review job itself then hit **the same Anthropic credit
+exhaustion this project hit once before** (`credit balance is too low`) partway through, so the
+post-fix review outcome for Verbeeck is still unverified. Re-run its review job once credits are
+topped up (the existing concept version already reflects the image-bank fix — no need to
+regenerate again, just queue a fresh `review` job for lead `35cf54b2-c980-42a9-9a29-ff92d7ce2867`).
+
+Tuinbouw Hendrix's active site (already live from before) was re-inspected this round for
+quality — it's genuinely complete: full nav, hero, trust strip, 3-card diensten section,
+about/story section, 3-card realisaties section, a themed feature section, and a real contact
+block with the actual BE company/address/VAT data from research. In-app preview (the
+`srcDoc`-based demo panel) renders it correctly. The public `track-and-serve` link was
+re-confirmed still affected by the platform text/plain gateway issue described above (still
+needs a custom domain — not a regression, not re-fixable from code).
+
+The worker's Chromium instability note above turned out to have a second, unrelated cause this
+round: a stale worker process from earlier in a long session can keep running old code and race
+new ones for jobs — always confirm which PID is actually live (`Get-CimInstance Win32_Process`)
+after restarting it, not just that *a* `node` process exists.
 
 ## Known gaps (deliberate, not oversights)
 
