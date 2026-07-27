@@ -2,6 +2,7 @@ import { handleCorsPreflight, corsHeaders } from "../_shared/cors.ts";
 import { createCallerClient, requireUser } from "../_shared/supabase-clients.ts";
 import { createAnthropicClient, calculateKostEur } from "../_shared/anthropic.ts";
 import { getSectorStyleGuidance } from "../_shared/sector-styles.ts";
+import { IMAGE_BANK_PROMPT } from "../_shared/image-bank.ts";
 
 const MODEL = Deno.env.get("MODEL_KWALITEIT") ?? "claude-opus-4-8";
 const PROMPT_VERSIE = "generatie-v9.0";
@@ -23,6 +24,8 @@ niet onderhandelbaar:
   realisaties/portfolio-sectie toe als de research daar materiaal voor geeft.
 - Gebruik letterlijk de contactgegevens uit de research (exact adres, telefoonnummer, e-mail,
   openingsuren) — niet ingekort of samengevat.
+
+${IMAGE_BANK_PROMPT}
 
 Gebruik de meegegeven sectorstijl-richtlijn als leidraad voor kleuren/typografie/lay-out — verzin
 geen eigen, afwijkend design. Gebruik de stijlvoorkeuren en sectorkennis hieronder als harde
