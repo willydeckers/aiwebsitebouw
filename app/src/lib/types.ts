@@ -79,6 +79,15 @@ export type SiteType = (typeof SITE_TYPES)[number];
 export const SITE_VERSION_STATUSES = ["concept", "afgerond", "actief"] as const;
 export type SiteVersionStatus = (typeof SITE_VERSION_STATUSES)[number];
 
+// One entry per page of a multi-page site (spec 3.3, multi-page extension).
+// The files sit next to content_referentie in the same version folder; see
+// supabase/functions/_shared/site-builder.ts.
+export type PaginaMeta = {
+  bestand: string;
+  titel: string;
+  nav_label: string;
+};
+
 export type SiteVersion = {
   id: string;
   lead_id: string;
@@ -86,6 +95,8 @@ export type SiteVersion = {
   versienummer: number;
   status: SiteVersionStatus;
   content_referentie: string | null;
+  /** null = version from before multi-page support: one standalone HTML file. */
+  paginas: PaginaMeta[] | null;
   prompt_versie: string | null;
   laatst_bewerkt_door: string | null;
   laatst_bewerkt_op: string;

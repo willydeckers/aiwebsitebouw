@@ -149,8 +149,12 @@ export function LeadDetailPanel({
   // Only a genuinely actieve version resolves on the public hosting route
   // (track-and-serve returns 404 otherwise) — building the URL from any
   // latest version would show a broken link before the first approval.
+  // Trailing slash on purpose — the multi-page demo's internal links are
+  // relative to the version folder, so the browser has to treat /{leadId}/
+  // as a directory (track-and-serve redirects to add it, but linking it
+  // right saves the round-trip).
   const demoUrl =
-    actieveVersion && demoHostingBase ? `${demoHostingBase}/${lead.id}` : null;
+    actieveVersion && demoHostingBase ? `${demoHostingBase}/${lead.id}/` : null;
 
   return (
     <div className="fixed inset-0 z-10 flex justify-end bg-slate-900/20 backdrop-blur-sm">

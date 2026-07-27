@@ -3,14 +3,16 @@ import { createCallerClient, requireUser } from "../_shared/supabase-clients.ts"
 import { createAnthropicClient, calculateKostEur } from "../_shared/anthropic.ts";
 import { getSectorStyleGuidance } from "../_shared/sector-styles.ts";
 import { IMAGE_BANK_PROMPT } from "../_shared/image-bank.ts";
+import { MULTIPAGE_PROMPT, bouwSite, parseSiteBron } from "../_shared/site-builder.ts";
 
 const MODEL = Deno.env.get("MODEL_KWALITEIT") ?? "claude-opus-4-8";
-const PROMPT_VERSIE = "generatie-v9.0";
+const PROMPT_VERSIE = "generatie-v9.1-multipage";
 
 const SYSTEM_PROMPT = `Je bent de generatie-stap van een web agency dashboard (spec sectie 3.3).
-Genereer één volledig zelfstandig HTML-bestand voor een koude demo-website, met Tailwind via CDN
-(<script src="https://cdn.tailwindcss.com"></script>) — geen build-stap, geen externe bestanden
-buiten die CDN-link en publiek toegankelijke afbeeldingen-URL's.
+Genereer een volledige meerpagina-demo-website, met Tailwind via CDN — geen build-stap, geen
+externe bestanden buiten die CDN-link en publiek toegankelijke afbeeldingen-URL's.
+
+${MULTIPAGE_PROMPT}
 
 Het resultaat moet aanvoelen als een afgewerkt product, niet als een lege demo of teaser. Concreet,
 niet onderhandelbaar:
@@ -18,10 +20,10 @@ niet onderhandelbaar:
   selectie van 3. Heeft het bedrijf al een bestaande site met bv. 8 diensten, dan heeft de nieuwe
   site ook 8 diensten — volledig uitgeschreven, niet ingekort. Onvolledigheid t.o.v. wat het
   bedrijf al zelf publiceert is de belangrijkste fout die je hier kan maken.
-- Bouw een volwaardige paginastructuur, niet enkel een hero: hero, "over ons"/verhaal (het
-  volledige verhaal uit de research, niet een enkele zin), het volledige aanbod, contactsectie met
-  alle gevonden contactgegevens (adres, telefoon, e-mail, openingsuren) en een footer. Voeg een
-  realisaties/portfolio-sectie toe als de research daar materiaal voor geeft.
+- Elke pagina is een volwaardige pagina: de home met hero en overzicht, een pagina met het
+  volledige verhaal uit de research (niet een enkele zin), een pagina met het volledige aanbod,
+  een contactpagina met alle gevonden contactgegevens. Voeg een realisaties/portfolio-pagina toe
+  als de research daar materiaal voor geeft.
 - Gebruik letterlijk de contactgegevens uit de research (exact adres, telefoonnummer, e-mail,
   openingsuren) — niet ingekort of samengevat.
 
@@ -30,10 +32,7 @@ ${IMAGE_BANK_PROMPT}
 Gebruik de meegegeven sectorstijl-richtlijn als leidraad voor kleuren/typografie/lay-out — verzin
 geen eigen, afwijkend design. Gebruik de stijlvoorkeuren en sectorkennis hieronder als harde
 regels, niet als suggesties. Vertrouw research-feiten en klantnotities volledig; verzin zelf geen
-bedrijfsinformatie die niet is meegegeven, maar laat ook niets weg dat wél is meegegeven.
-
-Antwoord uitsluitend met de ruwe HTML, beginnend met <!DOCTYPE html>. Geen markdown-codeblock,
-geen uitleg ervoor of erna.`;
+bedrijfsinformatie die niet is meegegeven, maar laat ook niets weg dat wél is meegegeven.`;
 
 Deno.serve(async (req) => {
   const preflight = handleCorsPreflight(req);
@@ -113,7 +112,10 @@ Deno.serve(async (req) => {
     const client = createAnthropicClient();
     const response = await client.messages.create({
       model: MODEL,
-      max_tokens: 16000,
+      // A 4-6 page site is several times the output of the single-page
+      // version this replaced (16000) — the old cap truncated mid-page,
+      // which the builder then rejects as a missing ===PAGINA===-sectie.
+      max_tokens: 48000,
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: userMessage }],
     });
@@ -121,13 +123,12 @@ Deno.serve(async (req) => {
     const textBlocks = response.content.filter((b) => b.type === "text");
     const lastText = textBlocks[textBlocks.length - 1];
     if (!lastText || lastText.type !== "text") {
-      throw new Error("Geen HTML-antwoord ontvangen van generatie-call.");
+      throw new Error("Geen antwoord ontvangen van generatie-call.");
+    }
+    if (response.stop_reason === "max_tokens") {
+      throw new Error("Generatie-antwoord is afgekapt op max_tokens — site niet volledig.");
     }
 
-    const html = lastText.text.trim();
-    if (!html.toLowerCase().startsWith("<!doctype")) {
-      throw new Error("Generatie-output start niet met <!DOCTYPE html>.");
-    }
 
     const { data: budgetResult, error: budgetError } = await supabase.rpc(
       "record_project_kost_if_under_budget",
@@ -152,6 +153,15 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Assembly runs after the budget call, not before: the tokens are spent
+    // either way, so a generation that turns out to be unusable still has to
+    // land in project_kosten rather than silently disappearing from the €5
+    // accounting. A SiteBuildError here fails the job with the exact reason
+    // (dead link, missing page, ...), which is what the review loop's
+    // regenerate step and the UI both surface.
+    const bron = parseSiteBron(lastText.text);
+    const gebouwd = bouwSite(bron, lead.bedrijfsnaam);
+
     // "Eén concept-versie": edit the existing concept in place (same
     // versienummer) rather than creating a new one, until it's finalized.
     const versienummer: number = bestaandConcept
@@ -166,18 +176,58 @@ Deno.serve(async (req) => {
             .maybeSingle()
         ).data?.versienummer ?? 0) + 1;
 
-    const storagePath = `${leadId}/${versienummer}.html`;
+    // One folder per version, entry page always index.html — see the
+    // 20260727 migration for why content_referentie stays a file path
+    // (every existing reader keeps resolving to the home page unchanged).
+    const map = `${leadId}/${versienummer}`;
+    const storagePath = `${map}/index.html`;
 
-    const { error: uploadError } = await supabase.storage
+    for (const pagina of gebouwd) {
+      const { error: uploadError } = await supabase.storage
+        .from("demos")
+        .upload(`${map}/${pagina.bestand}`, pagina.html, { contentType: "text/html", upsert: true });
+      if (uploadError) throw new Error(`Upload van ${pagina.bestand} mislukt: ${uploadError.message}`);
+    }
+
+    // The parsed parts, stored next to the assembled pages so chat-edit can
+    // patch the nav or footer once and have it re-applied to every page,
+    // instead of having to repeat the same edit N times across N files.
+    const { error: bronError } = await supabase.storage
       .from("demos")
-      .upload(storagePath, html, { contentType: "text/html", upsert: true });
+      .upload(`${map}/bron.json`, JSON.stringify(bron, null, 2), {
+        contentType: "application/json",
+        upsert: true,
+      });
+    if (bronError) throw new Error(`Upload van bron.json mislukt: ${bronError.message}`);
 
-    if (uploadError) throw new Error(`Upload naar storage mislukt: ${uploadError.message}`);
+    // A re-generation into an existing concept folder can produce a
+    // different set of page names; leftovers from the previous run would
+    // otherwise stay served and reachable by their old URL.
+    const oudePaginas = (bestaandConcept?.paginas ?? []) as { bestand: string }[];
+    const verouderd = oudePaginas
+      .filter((p) => !gebouwd.some((g) => g.bestand === p.bestand))
+      .map((p) => `${map}/${p.bestand}`);
+    // ...including the single file a pre-multi-page concept for this same
+    // versienummer was stored as (`{leadId}/{N}.html`, now `{leadId}/{N}/`).
+    if (bestaandConcept && !bestaandConcept.paginas && bestaandConcept.content_referentie) {
+      verouderd.push(bestaandConcept.content_referentie);
+    }
+    if (verouderd.length) await supabase.storage.from("demos").remove(verouderd);
+
+    const paginaManifest = gebouwd.map((p) => {
+      const meta = bron.paginas.find((m) => m.bestand === p.bestand)!;
+      return { bestand: meta.bestand, titel: meta.titel, nav_label: meta.nav_label };
+    });
 
     if (bestaandConcept) {
       await supabase
         .from("site_versions")
-        .update({ content_referentie: storagePath, prompt_versie: PROMPT_VERSIE, laatst_bewerkt_door: user.email })
+        .update({
+          content_referentie: storagePath,
+          paginas: paginaManifest,
+          prompt_versie: PROMPT_VERSIE,
+          laatst_bewerkt_door: user.email,
+        })
         .eq("id", bestaandConcept.id);
     } else {
       await supabase.from("site_versions").insert({
@@ -186,6 +236,7 @@ Deno.serve(async (req) => {
         versienummer,
         status: "concept",
         content_referentie: storagePath,
+        paginas: paginaManifest,
         prompt_versie: PROMPT_VERSIE,
         laatst_bewerkt_door: user.email,
       });
@@ -201,7 +252,7 @@ Deno.serve(async (req) => {
     }
     await supabase.from("jobs").update({ status: "klaar", afgerond_op: new Date().toISOString() }).eq("id", job.id);
 
-    return new Response(JSON.stringify({ ok: true, versienummer }), {
+    return new Response(JSON.stringify({ ok: true, versienummer, paginas: paginaManifest }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {

@@ -5,9 +5,18 @@ import { gebruikerFromEmail } from "../_shared/gebruiker.ts";
 
 // Spec section 2: the public hosting layer. No auth, no CORS preflight
 // needed — this is loaded directly by a lead's browser, not called via
-// supabase-js from the app. Two routes, distinguished by path:
-//   /{leadId}    -> serve the actieve site_versions content
-//   /t/{leadId}  -> log the open, notify Warre/Garen once, redirect above
+// supabase-js from the app. Routes, distinguished by path:
+//   /{leadId}/               -> serve index.html of the actieve site_versions
+//   /{leadId}/{bestand}.html -> serve that page of the same version
+//   /t/{leadId}              -> log the open, notify Warre/Garen once, redirect above
+//
+// The trailing slash on the first route is load-bearing, not cosmetic: the
+// generated pages link to each other with plain relative hrefs
+// ("over-ons.html") so the same files also work opened straight from disk or
+// on any static host. A browser resolves those against the *directory* of the
+// current URL — from `/{leadId}` that's the parent, giving a 404, while from
+// `/{leadId}/` it's exactly the folder the other pages live in. So a request
+// without the slash gets redirected to add it.
 
 async function notifyOpened(
   supabase: ReturnType<typeof createServiceClient>,
@@ -38,7 +47,7 @@ async function notifyOpened(
     from: sender.email,
     to: recipients.join(", "),
     subject: `Geopend: ${lead.bedrijfsnaam}`,
-    html: `<p>${lead.bedrijfsnaam} heeft net de demo geopend.</p><p><a href="${hostingBase}/${leadId}">Bekijk de demo</a></p>`,
+    html: `<p>${lead.bedrijfsnaam} heeft net de demo geopend.</p><p><a href="${hostingBase}/${leadId}/">Bekijk de demo</a></p>`,
   });
 }
 
@@ -65,13 +74,14 @@ async function handleTrack(
     }
   }
 
-  const newPath = url.pathname.replace(/\/t\/[^/]+$/, `/${leadId}`);
+  const newPath = url.pathname.replace(/\/t\/[^/]+\/?$/, `/${leadId}/`);
   return Response.redirect(`${url.origin}${newPath}`, 302);
 }
 
 async function handleServe(
   supabase: ReturnType<typeof createServiceClient>,
   leadId: string,
+  bestand: string | null,
 ): Promise<Response> {
   const { data: lead } = await supabase
     .from("leads")
@@ -89,7 +99,7 @@ async function handleServe(
 
   const { data: siteVersion } = await supabase
     .from("site_versions")
-    .select("content_referentie")
+    .select("content_referentie, paginas")
     .eq("lead_id", leadId)
     .eq("status", "actief")
     .maybeSingle();
@@ -98,7 +108,21 @@ async function handleServe(
     return new Response("Nog geen actieve versie beschikbaar voor deze lead.", { status: 404 });
   }
 
-  const { data: file, error } = await supabase.storage.from("demos").download(siteVersion.content_referentie);
+  const paginas = (siteVersion.paginas ?? []) as { bestand: string }[];
+  let pad = siteVersion.content_referentie;
+
+  if (bestand && bestand !== "index.html") {
+    // Only files this version actually declares are servable — no arbitrary
+    // path lands in a Storage download call from a public, unauthenticated
+    // route, and a stale link to a page a re-generation dropped 404s
+    // instead of leaking whatever else happens to sit in the bucket.
+    if (!paginas.some((p) => p.bestand === bestand)) {
+      return new Response("Pagina niet gevonden.", { status: 404 });
+    }
+    pad = `${siteVersion.content_referentie.replace(/\/index\.html$/, "")}/${bestand}`;
+  }
+
+  const { data: file, error } = await supabase.storage.from("demos").download(pad);
   if (error || !file) {
     return new Response(`Kon demo-bestand niet ophalen: ${error?.message}`, { status: 500 });
   }
@@ -117,7 +141,12 @@ Deno.serve(async (req) => {
       return await handleTrack(supabase, segments[1], url);
     }
     if (segments[0]) {
-      return await handleServe(supabase, segments[0]);
+      // `/{leadId}` (no trailing slash, no page) can't serve the site
+      // directly — see the header comment on relative-link resolution.
+      if (!segments[1] && !url.pathname.endsWith("/")) {
+        return Response.redirect(`${url.origin}${url.pathname}/${url.search}`, 302);
+      }
+      return await handleServe(supabase, segments[0], segments[1] ?? null);
     }
     return new Response("Not found", { status: 404 });
   } catch (err) {
