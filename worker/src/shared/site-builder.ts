@@ -138,6 +138,33 @@ export function parseSiteBron(raw: string): SiteBron {
   return { paginas, head: inhoud("HEAD") ?? "", nav, footer, bodies };
 }
 
+/**
+ * Highest max_tokens the Anthropic SDK still allows on a NON-streaming call
+ * (it refuses anything it estimates could run past 10 minutes:
+ * 3600 * max_tokens / 128000 > 600). Streaming would lift that, but an
+ * Edge Function streaming tens of thousands of SSE events runs into
+ * Supabase's per-invocation resource limit instead — so generation stays
+ * non-streaming and gets a continuation call when it needs more room.
+ */
+export const MAX_OUTPUT_TOKENS = 21000;
+
+/**
+ * Cuts a truncated answer back to the last COMPLETE section. A response that
+ * stopped on max_tokens ends mid-section; that partial section is thrown away
+ * here so a continuation call (which resumes from this exact text as an
+ * assistant prefill) rewrites it in full rather than splicing two halves of
+ * one page together.
+ */
+export function knipNaLaatsteVolledigeSectie(tekst: string): string {
+  const regels = tekst.split("\n");
+  for (let i = regels.length - 1; i >= 0; i--) {
+    if (SECTIE_PATROON.test(regels[i].trim())) {
+      return regels.slice(0, i).join("\n").trimEnd();
+    }
+  }
+  return tekst.trimEnd();
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // 2. Internal-link resolution
 // ─────────────────────────────────────────────────────────────────────────
@@ -233,20 +260,37 @@ const ACTIEF_STIJL = `<style>
 </style>`;
 
 /**
- * Returns the shared nav markup with the link to `huidigBestand` marked as the
- * current page: `aria-current="page"` (the accessible signal, and what
- * ACTIEF_STIJL hooks into) plus whatever visual classes the nav link declared
- * in `data-nav-actief`.
+ * Returns the shared nav markup with the link(s) to `huidigBestand` marked as
+ * the current page: `aria-current="page"` (the accessible signal, and what
+ * ACTIEF_STIJL hooks into) plus the visual classes that link declared in
+ * `data-nav-actief`.
+ *
+ * `data-nav-actief` is what identifies an anchor as a navigation link at all,
+ * not just where its active classes come from. A real header holds more
+ * anchors than menu items — the logo wrapping back to index.html, an
+ * "offerte aanvragen" button pointing at contact.html — and marking those as
+ * the current page underlines the logo and lights up a call-to-action for no
+ * reason. Matching on the attribute skips exactly those.
+ *
+ * More than one hit is normal and correct: a header with a desktop menu and a
+ * separate mobile menu has two links per page, and both are the current page.
  */
-export function markeerActievePagina(nav: string, huidigBestand: string): string {
-  return nav.replace(ANKER_PATROON, (tag) => {
+export function markeerActievePagina(nav: string, huidigBestand: string): { html: string; gemarkeerd: number } {
+  let gemarkeerd = 0;
+  const html = nav.replace(ANKER_PATROON, (tag) => {
     const href = hrefVan(tag);
     if (href === null) return tag;
     if ((href.split("#")[0] || "index.html") !== huidigBestand) return tag;
-    if (/\baria-current\s*=/i.test(tag)) return tag;
 
     const actiefMatch = ACTIEF_ATTR_PATROON.exec(tag);
-    const extraKlassen = (actiefMatch?.[2] ?? actiefMatch?.[3] ?? "").trim();
+    if (!actiefMatch) return tag;
+    if (/\baria-current\s*=/i.test(tag)) {
+      gemarkeerd++;
+      return tag;
+    }
+
+    gemarkeerd++;
+    const extraKlassen = (actiefMatch[2] ?? actiefMatch[3] ?? "").trim();
 
     let resultaat = tag;
     if (extraKlassen) {
@@ -261,6 +305,8 @@ export function markeerActievePagina(nav: string, huidigBestand: string): string
     }
     return resultaat.replace(/^<a\b/i, '<a aria-current="page"');
   });
+
+  return { html, gemarkeerd };
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -326,29 +372,38 @@ export function bouwSite(bron: SiteBron, bedrijfsnaam: string): GebouwdePagina[]
     );
   }
 
-  return bron.paginas.map((pagina) => ({
-    bestand: pagina.bestand,
-    titel: pagina.titel,
-    html: [
-      "<!DOCTYPE html>",
-      '<html lang="nl">',
-      "<head>",
-      '<meta charset="utf-8">',
-      '<meta name="viewport" content="width=device-width, initial-scale=1">',
-      `<title>${escapeHtml(pagina.titel)} — ${escapeHtml(bedrijfsnaam)}</title>`,
-      '<script src="https://cdn.tailwindcss.com"></script>',
-      bron.head,
-      ACTIEF_STIJL,
-      "</head>",
-      "<body>",
-      markeerActievePagina(navResultaat.html, pagina.bestand),
-      bodies[pagina.bestand],
-      footerResultaat.html,
-      "</body>",
-      "</html>",
-      "",
-    ].join("\n"),
-  }));
+  return bron.paginas.map((pagina) => {
+    const nav = markeerActievePagina(navResultaat.html, pagina.bestand);
+    if (nav.gemarkeerd === 0) {
+      throw new SiteBuildError(
+        `Geen navigatielink met data-nav-actief voor ${pagina.bestand} — zonder dat attribuut kan de actieve pagina niet gemarkeerd worden.`,
+      );
+    }
+
+    return {
+      bestand: pagina.bestand,
+      titel: pagina.titel,
+      html: [
+        "<!DOCTYPE html>",
+        '<html lang="nl">',
+        "<head>",
+        '<meta charset="utf-8">',
+        '<meta name="viewport" content="width=device-width, initial-scale=1">',
+        `<title>${escapeHtml(pagina.titel)} — ${escapeHtml(bedrijfsnaam)}</title>`,
+        '<script src="https://cdn.tailwindcss.com"></script>',
+        bron.head,
+        ACTIEF_STIJL,
+        "</head>",
+        "<body>",
+        nav.html,
+        bodies[pagina.bestand],
+        footerResultaat.html,
+        "</body>",
+        "</html>",
+        "",
+      ].join("\n"),
+    };
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -389,11 +444,15 @@ Harde regels voor het paginasysteem:
   in ===META=== staat — dat wordt geweigerd en de hele generatie faalt.
 - Ankerlinks binnen dezelfde pagina (href="#diensten") mogen, en href="index.html#contact" mag
   ook. Externe links (https://, mailto:, tel:) blijven ongemoeid.
-- Geef elke navigatielink een data-nav-actief-attribuut met de Tailwind-klassen die moeten
+- Geef ELKE navigatielink een data-nav-actief-attribuut met de Tailwind-klassen die moeten
   gelden wanneer díe pagina de huidige is, bv.
   <a href="over-ons.html" class="text-slate-600 hover:text-slate-900" data-nav-actief="text-emerald-700 font-semibold">Over ons</a>.
   De code zet dat attribuut per pagina om in de actieve staat (plus aria-current="page"); zet
-  zelf nergens aria-current.
+  zelf nergens aria-current. Dit attribuut is tegelijk hoe de code herkent wélke links echte
+  menu-items zijn: zet het NIET op het logo, op een "offerte aanvragen"-knop of op een andere
+  link in de header die geen menu-item is — anders worden die ook als huidige pagina
+  gemarkeerd. Heb je een aparte mobiele menulijst, geef die links het attribuut wél.
+  Een pagina zonder zo'n navigatielink wordt geweigerd.
 - Verdeel de inhoud ECHT over de pagina's: elke pagina moet op zichzelf een volwaardige pagina
   zijn met eigen koppen, tekst en secties. Een pagina met drie regels tekst is geen pagina.
   Zet niet alles op de home en laat de rest leeg, maar geef de home wel een overzicht met

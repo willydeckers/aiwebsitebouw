@@ -41,12 +41,22 @@ const GELDIG = `Hier is de site:
 ===HEAD===
 <style>body{font-family:system-ui}</style>
 ===NAV===
-<header><nav>
+<header>
+<a href="index.html" class="logo"><img src="logo.png" alt="Logo"></a>
+<nav>
 <a href="index.html" class="text-slate-600" data-nav-actief="text-emerald-700 font-semibold">Home</a>
 <a href="over-ons.html" class="text-slate-600" data-nav-actief="text-emerald-700 font-semibold">Over ons</a>
 <a href="diensten.html" class="text-slate-600" data-nav-actief="text-emerald-700 font-semibold">Diensten</a>
 <a href="contact.html" class="text-slate-600" data-nav-actief="text-emerald-700 font-semibold">Contact</a>
-</nav></header>
+</nav>
+<nav class="mobiel">
+<a href="index.html" class="blok" data-nav-actief="text-emerald-700 font-semibold">Home</a>
+<a href="over-ons.html" class="blok" data-nav-actief="text-emerald-700 font-semibold">Over ons</a>
+<a href="diensten.html" class="blok" data-nav-actief="text-emerald-700 font-semibold">Diensten</a>
+<a href="contact.html" class="blok" data-nav-actief="text-emerald-700 font-semibold">Contact</a>
+</nav>
+<a href="contact.html" class="cta">Vraag een offerte</a>
+</header>
 ===FOOTER===
 <footer><a href="contact.html">Contact</a> — <a href="mailto:info@example.be">info@example.be</a></footer>
 ===PAGINA:index.html===
@@ -86,16 +96,40 @@ test("bouwt één bestand per pagina met identieke nav en footer", () => {
   assert.equal(new Set(genormaliseerd).size, 1, "navigatie verschilt structureel tussen pagina's");
 });
 
-test("markeert exact één navigatielink als actieve pagina", () => {
+test("markeert per pagina elke menulink naar die pagina als actief", () => {
   for (const pagina of bouwSite(parseSiteBron(GELDIG), "Tuinbouw Hendrix")) {
     const nav = pagina.html.split("<header>")[1].split("</header>")[0];
-    const actief = nav.match(/aria-current="page"/g) ?? [];
-    assert.equal(actief.length, 1, `${pagina.bestand}: ${actief.length} actieve links`);
-    const actieveTag = (nav.match(/<a[^>]*aria-current="page"[^>]*>/) ?? [""])[0];
-    assert.ok(actieveTag.includes(`href="${pagina.bestand}"`), `${pagina.bestand}: verkeerde link actief`);
-    assert.ok(actieveTag.includes("text-emerald-700"), `${pagina.bestand}: data-nav-actief niet toegepast`);
-    assert.ok(actieveTag.includes("text-slate-600"), `${pagina.bestand}: bestaande klassen verdwenen`);
+    const actieveTags = nav.match(/<a[^>]*aria-current="page"[^>]*>/g) ?? [];
+    // Desktop- en mobielmenu bevatten allebei een link naar deze pagina.
+    assert.equal(actieveTags.length, 2, `${pagina.bestand}: ${actieveTags.length} actieve links`);
+    for (const tag of actieveTags) {
+      assert.ok(tag.includes(`href="${pagina.bestand}"`), `${pagina.bestand}: verkeerde link actief`);
+      assert.ok(tag.includes("text-emerald-700"), `${pagina.bestand}: data-nav-actief niet toegepast`);
+    }
+    assert.ok(
+      actieveTags.some((t) => t.includes("text-slate-600")),
+      `${pagina.bestand}: bestaande klassen verdwenen`,
+    );
   }
+});
+
+test("markeert logo en call-to-action niet als actieve pagina", () => {
+  const paginas = bouwSite(parseSiteBron(GELDIG), "Tuinbouw Hendrix");
+  const index = paginas.find((p) => p.bestand === "index.html")!;
+  const contact = paginas.find((p) => p.bestand === "contact.html")!;
+  assert.ok(!/<a[^>]*class="logo"[^>]*aria-current/.test(index.html), "logo werd als huidige pagina gemarkeerd");
+  assert.ok(!/<a[^>]*class="cta"[^>]*aria-current/.test(contact.html), "cta-knop werd als huidige pagina gemarkeerd");
+});
+
+test("weigert een pagina zonder navigatielink met data-nav-actief", () => {
+  const zonderAttribuut = GELDIG.replace(
+    / class="text-slate-600" data-nav-actief="text-emerald-700 font-semibold">Diensten/,
+    ' class="text-slate-600">Diensten',
+  ).replace(
+    / class="blok" data-nav-actief="text-emerald-700 font-semibold">Diensten/,
+    ' class="blok">Diensten',
+  );
+  assert.throws(() => bouwSite(parseSiteBron(zonderAttribuut), "Test"), /diensten\.html/);
 });
 
 test("normaliseert interne links naar bestaande bestanden", () => {
@@ -137,10 +171,7 @@ test("weigert een dode interne link", () => {
 });
 
 test("weigert een pagina die niet in de navigatie staat", () => {
-  const zonderNavLink = GELDIG.replace(
-    '<a href="diensten.html" class="text-slate-600" data-nav-actief="text-emerald-700 font-semibold">Diensten</a>\n',
-    "",
-  );
+  const zonderNavLink = GELDIG.replace(/<a href="diensten\.html"[^>]*>Diensten<\/a>\n/g, "");
   assert.throws(() => bouwSite(parseSiteBron(zonderNavLink), "Test"), (err: unknown) => {
     assert.match((err as Error).message, /diensten\.html/);
     return true;
@@ -155,14 +186,17 @@ test("weigert een ontbrekende ===PAGINA===-sectie", () => {
 test("weigert een site zonder index.html", () => {
   const zonderIndex = GELDIG.replace(/\{"bestand":"index\.html"[^}]*\},\n\s*/, "")
     .replace("===PAGINA:index.html===\n<main><h1>Welkom</h1><a href=\"./diensten.html#tuinaanleg\">Bekijk onze diensten</a></main>\n", "")
-    .replace('<a href="index.html" class="text-slate-600" data-nav-actief="text-emerald-700 font-semibold">Home</a>\n', "");
+    .replace(/<a href="index\.html"[^>]*>(Home|<img[^>]*>)<\/a>\n/g, "");
   assert.throws(() => bouwSite(parseSiteBron(zonderIndex), "Test"), /index\.html/);
 });
 
 test("markeerActievePagina blijft idempotent bij herhaald toepassen", () => {
   const nav = '<a href="index.html" data-nav-actief="font-bold">Home</a>';
   const eenmaal = markeerActievePagina(nav, "index.html");
-  assert.equal(markeerActievePagina(eenmaal, "index.html"), eenmaal);
+  assert.equal(eenmaal.gemarkeerd, 1);
+  const tweemaal = markeerActievePagina(eenmaal.html, "index.html");
+  assert.equal(tweemaal.html, eenmaal.html);
+  assert.equal(tweemaal.gemarkeerd, 1);
 });
 
 console.log(`\n${geslaagd} tests geslaagd${process.exitCode ? " (met fouten)" : ""}`);
