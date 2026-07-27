@@ -38,12 +38,25 @@ const NAVIGATIE_SCRIPT = `<script>
 })();
 </script>`;
 
+// Deliberately waits for load + a beat rather than scrolling inline: the
+// generated pages pull Tailwind from the CDN, so at parse time the document is
+// still unstyled and every section sits at roughly y=0. Scrolling then lands
+// nowhere and the restyle drops you back at the top (observed: a
+// contact.html#offerte link left the preview at scrollTop 0 with the target at
+// 869px).
 function scrollScript(hash: string): string {
   if (!hash || hash === "#") return "";
   return `<script>
 (function () {
-  var doel = document.querySelector(${JSON.stringify(hash)});
-  if (doel) doel.scrollIntoView();
+  function spring() {
+    var doel = document.querySelector(${JSON.stringify(hash)});
+    // behavior:"auto" on purpose — generated pages set scroll-behavior:smooth
+    // for their own anchor links, and a smooth scroll is animation-driven, so
+    // it silently does nothing in an iframe the browser isn't currently
+    // compositing. This jump has to land whether or not the panel is on screen.
+    if (doel) doel.scrollIntoView({ behavior: "auto", block: "start" });
+  }
+  window.addEventListener("load", function () { setTimeout(spring, 150); });
 })();
 </script>`;
 }
