@@ -16,20 +16,27 @@ export type ReviewResult = z.infer<typeof ReviewSchema>;
 export type ReviewUsage = { model: string; tokensIn: number; tokensOut: number };
 
 const SYSTEM_PROMPT = `Je bent de visuele review-stap van een web agency dashboard (spec sectie 3.4).
-Beoordeel de bijgevoegde screenshots (desktop + mobiel) van een gegenereerde demo-website tegen
-de stijlvoorkeuren en de research-samenvatting hieronder.
+Beoordeel de bijgevoegde screenshots van een gegenereerde meerpagina-demo-website tegen de
+stijlvoorkeuren en de research-samenvatting hieronder. Elke screenshot is gelabeld met de pagina
+en het formaat waar hij bij hoort.
 
 Controleer:
 - Klopt de getoonde bedrijfsinfo met de research-samenvatting? (geen verzonnen feiten)
 - Volgt de site de stijlvoorkeuren?
-- Oogt de site professioneel en compleet op beide formaten (geen kapotte lay-out, lege secties,
-  placeholder-tekst)?
+- Oogt elke pagina professioneel en compleet (geen kapotte lay-out, lege secties,
+  placeholder-tekst), zowel op desktop als op mobiel?
+- Is elke pagina een volwaardige pagina met eigen inhoud, en niet een bijna lege doorverwijzing?
 
-Keur enkel goed als er niets substantieels op aan te merken is op beide screenshots.`;
+De navigatiebalk en de footer worden door de code op elke pagina identiek gezet, en de actieve
+pagina wordt daar automatisch in gemarkeerd — beoordeel het ontwerp ervan gerust, maar meld geen
+verschillen in nav/footer tussen pagina's: die kunnen niet bestaan.
+
+Keur enkel goed als er niets substantieels op aan te merken is op geen enkele screenshot.`;
+
+export type ReviewScreenshot = { label: string; png: Buffer };
 
 export async function reviewDemo(
-  desktopScreenshot: Buffer,
-  mobielScreenshot: Buffer,
+  screenshots: ReviewScreenshot[],
   context: { bedrijfsnaam: string; sector: string; researchSamenvatting: string | null },
   stijlvoorkeuren: { regel: string }[],
 ): Promise<{ result: ReviewResult; usage: ReviewUsage }> {
@@ -56,16 +63,13 @@ export async function reviewDemo(
       {
         role: "user",
         content: [
-          { type: "text", text: "Desktop-screenshot:" },
-          {
-            type: "image",
-            source: { type: "base64", media_type: "image/png", data: desktopScreenshot.toString("base64") },
-          },
-          { type: "text", text: "Mobiel-screenshot:" },
-          {
-            type: "image",
-            source: { type: "base64", media_type: "image/png", data: mobielScreenshot.toString("base64") },
-          },
+          ...screenshots.flatMap((shot) => [
+            { type: "text" as const, text: `${shot.label}:` },
+            {
+              type: "image" as const,
+              source: { type: "base64" as const, media_type: "image/png" as const, data: shot.png.toString("base64") },
+            },
+          ]),
           { type: "text", text: contextText },
           {
             type: "text",

@@ -1,4 +1,11 @@
 import { createAnthropicClient } from "../shared/anthropic.js";
+import {
+  MULTIPAGE_PROMPT,
+  bouwSite,
+  parseSiteBron,
+  type GebouwdePagina,
+  type SiteBron,
+} from "../shared/site-builder.js";
 
 // Duplicated from supabase/functions/generatie/index.ts's prompt-building
 // logic rather than shared across the Deno/Node runtime boundary — the
@@ -65,19 +72,17 @@ Pas het aspect ratio aan met de bestaande query-parameters (w=, h=, fit=crop) na
 foto-ID zelf mag je niet wijzigen.`;
 
 const SYSTEM_PROMPT = `Je bent de generatie-stap van een web agency dashboard (spec sectie 3.3).
-Genereer één volledig zelfstandig HTML-bestand voor een koude demo-website, met Tailwind via CDN
-(<script src="https://cdn.tailwindcss.com"></script>) — geen build-stap, geen externe bestanden
-buiten die CDN-link en publiek toegankelijke afbeeldingen-URL's.
+Genereer een volledige meerpagina-demo-website, met Tailwind via CDN — geen build-stap, geen
+externe bestanden buiten die CDN-link en publiek toegankelijke afbeeldingen-URL's.
+
+${MULTIPAGE_PROMPT}
 
 ${IMAGE_BANK_PROMPT}
 
 Gebruik de meegegeven sectorstijl-richtlijn als leidraad voor kleuren/typografie/lay-out — verzin
 geen eigen, afwijkend design. Gebruik de stijlvoorkeuren en sectorkennis hieronder als harde
 regels, niet als suggesties. Vertrouw research-feiten en klantnotities; verzin zelf geen
-bedrijfsinformatie die niet is meegegeven.
-
-Antwoord uitsluitend met de ruwe HTML, beginnend met <!DOCTYPE html>. Geen markdown-codeblock,
-geen uitleg ervoor of erna.`;
+bedrijfsinformatie die niet is meegegeven.`;
 
 export type GenerateUsage = { model: string; tokensIn: number; tokensOut: number };
 
@@ -94,7 +99,7 @@ export async function regenerateWithFeedback(
   stijlvoorkeuren: { regel: string; context: string | null }[],
   sectorKennis: { regel: string }[],
   feedback: string,
-): Promise<{ html: string; usage: GenerateUsage }> {
+): Promise<{ bron: SiteBron; paginas: GebouwdePagina[]; usage: GenerateUsage }> {
   const client = createAnthropicClient();
 
   const userMessage = [
@@ -119,7 +124,10 @@ export async function regenerateWithFeedback(
 
   const response = await client.messages.create({
     model: MODEL,
-    max_tokens: 16000,
+    // Matches generatie/index.ts — a 4-6 page site truncates well before the
+    // 16000 this replaced, and a truncated answer is rejected by the builder
+    // as a missing page rather than shipping half a site.
+    max_tokens: 48000,
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: userMessage }],
   });
@@ -127,16 +135,17 @@ export async function regenerateWithFeedback(
   const textBlocks = response.content.filter((b) => b.type === "text");
   const lastText = textBlocks[textBlocks.length - 1];
   if (!lastText || lastText.type !== "text") {
-    throw new Error("Geen HTML-antwoord ontvangen van generatie-call.");
+    throw new Error("Geen antwoord ontvangen van generatie-call.");
+  }
+  if (response.stop_reason === "max_tokens") {
+    throw new Error("Generatie-antwoord is afgekapt op max_tokens — site niet volledig.");
   }
 
-  const html = lastText.text.trim();
-  if (!html.toLowerCase().startsWith("<!doctype")) {
-    throw new Error("Generatie-output start niet met <!DOCTYPE html>.");
-  }
+  const bron = parseSiteBron(lastText.text);
 
   return {
-    html,
+    bron,
+    paginas: bouwSite(bron, lead.bedrijfsnaam),
     usage: { model: MODEL, tokensIn: response.usage.input_tokens, tokensOut: response.usage.output_tokens },
   };
 }
