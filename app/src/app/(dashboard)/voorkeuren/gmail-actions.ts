@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
+import { describeFunctionError } from "@/lib/supabase/function-error";
 
 export type GmailKoppeling = {
   gebruiker: "warre" | "garen";
@@ -51,7 +52,7 @@ export async function exchangeGmailCode(code: string, redirectUri: string): Prom
     body: { code, redirectUri },
   });
 
-  if (error) return `Gmail-koppeling mislukt: ${error.message}`;
+  if (error) return `Gmail-koppeling mislukt: ${await describeFunctionError(error)}`;
   if (data?.error) return data.error as string;
 
   return null;

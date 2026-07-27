@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
+import { describeFunctionError } from "@/lib/supabase/function-error";
 
 export async function generateStaffInvite(klantId: string): Promise<string | null> {
   const supabase = createClient();
@@ -7,7 +8,7 @@ export async function generateStaffInvite(klantId: string): Promise<string | nul
   });
 
   if (error) {
-    return `Uitnodigen mislukt: ${error.message}`;
+    return `Uitnodigen mislukt: ${await describeFunctionError(error)}`;
   }
   if (data?.error) {
     return data.error as string;

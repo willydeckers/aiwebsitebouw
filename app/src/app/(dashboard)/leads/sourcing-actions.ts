@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
+import { describeFunctionError } from "@/lib/supabase/function-error";
 
 export type SourcingConfig = {
   id: string;
@@ -51,7 +52,7 @@ export async function startSourcingRun(): Promise<string | null> {
   const supabase = createClient();
   const { data, error } = await supabase.functions.invoke("sourcing-run", { body: {} });
 
-  if (error) return `Sourcing-run mislukt: ${error.message}`;
+  if (error) return `Sourcing-run mislukt: ${await describeFunctionError(error)}`;
   if (data?.error) return data.error as string;
 
   return null;

@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
+import { describeFunctionError } from "@/lib/supabase/function-error";
 
 export async function startResearch(leadId: string): Promise<string | null> {
   const supabase = createClient();
@@ -7,7 +8,7 @@ export async function startResearch(leadId: string): Promise<string | null> {
   });
 
   if (error) {
-    return `Research mislukt: ${error.message}`;
+    return `Research mislukt: ${await describeFunctionError(error)}`;
   }
   if (data?.error) {
     return data.error as string;

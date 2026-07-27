@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
+import { describeFunctionError } from "@/lib/supabase/function-error";
 
 export async function sendDemoEmail(
   leadId: string,
@@ -11,7 +12,7 @@ export async function sendDemoEmail(
   });
 
   if (error) {
-    return `Versturen mislukt: ${error.message}`;
+    return `Versturen mislukt: ${await describeFunctionError(error)}`;
   }
   if (data?.error) {
     return data.error as string;
