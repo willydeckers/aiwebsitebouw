@@ -46,7 +46,7 @@ async function runJob(job: {
   lead_id: string | null;
   type: string;
   pogingen: number;
-  payload: { extraContext?: string } | null;
+  payload: { extraContext?: string; shopifyDomain?: string } | null;
 }) {
   const timeout = setTimeout(async () => {
     await supabase.from("jobs").update({ status: "timeout" }).eq("id", job.id);
@@ -62,7 +62,7 @@ async function runJob(job: {
     } else if (job.type === "review") {
       await processReviewJob(supabase, job.id, job.lead_id);
     } else if (job.type === "shopify_opbouw") {
-      await processShopifyBuildJob(supabase, job.id, job.lead_id);
+      await processShopifyBuildJob(supabase, job.id, job.lead_id, job.payload);
     } else {
       throw new Error(`Onbekend job-type voor deze worker: ${job.type}`);
     }

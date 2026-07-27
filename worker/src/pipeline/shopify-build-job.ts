@@ -2,12 +2,17 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createDevelopmentStore } from "../shared/shopify-partner-client.js";
 
 // Spec 3.8: "Development store via Shopify Partner API, Dawn-basistheme."
-// The Partner API only creates the store — it does not hand back an Admin
-// API access token, so shopify_access_token stays null here. Per the note
-// in the klanten_shopify_credentials migration, wiring that token up (a
-// custom-app install or OAuth grant against the new store) is a manual
-// one-time step; chat-edit-shopify/staff-invite already refuse to run
-// until klanten.shopify_access_token is populated.
+//
+// The store-creation half of that is not achievable: the Partner API has no
+// mutation for it (verified against the live schema — see
+// shopify-partner-client.ts). So this job now takes the domain of a store
+// that was created by hand in the Partner Dashboard and does everything after
+// that point: klant record, lead status, first site_versions row.
+//
+// The Admin API access token is still a separate manual step (a custom-app
+// install or OAuth grant against the new store), same as before —
+// chat-edit-shopify refuses to run until klanten.shopify_access_token is
+// populated.
 //
 // Multi-page and Shopify — a deliberate split, not an oversight:
 // site-builder.ts assembles standalone HTML files, and none of that applies
@@ -31,7 +36,12 @@ import { createDevelopmentStore } from "../shared/shopify-partner-client.js";
 // isn't built for any site type — but the shape is there when it is, and the
 // Admin API mutations involved are still unverified against a live Partner
 // account (see CLAUDE.md's known gaps).
-export async function processShopifyBuildJob(supabase: SupabaseClient, jobId: string, leadId: string) {
+export async function processShopifyBuildJob(
+  supabase: SupabaseClient,
+  jobId: string,
+  leadId: string,
+  payload: { shopifyDomain?: string } | null,
+) {
   const { data: lead, error: leadError } = await supabase
     .from("leads")
     .select("id, bedrijfsnaam")
@@ -39,8 +49,17 @@ export async function processShopifyBuildJob(supabase: SupabaseClient, jobId: st
     .single();
   if (leadError || !lead) throw new Error(`Lead niet gevonden: ${leadError?.message}`);
 
-  const storeName = `${lead.bedrijfsnaam}-${lead.id.slice(0, 8)}`.toLowerCase().replace(/[^a-z0-9-]/g, "-");
-  const { storeId, domain } = await createDevelopmentStore(storeName);
+  // The store is created by hand in the Partner Dashboard and its domain
+  // passed in here — see createDevelopmentStore for why there is no API to do
+  // it for us. Everything after this point is the part that IS automatable.
+  const domain = payload?.shopifyDomain?.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "");
+  if (!domain) {
+    await createDevelopmentStore(); // throws with the explanation
+  }
+  if (!/^[a-z0-9-]+\.myshopify\.com$/.test(domain!)) {
+    throw new Error(`"${domain}" ziet er niet uit als een myshopify.com-domein.`);
+  }
+  const storeId = domain!;
 
   const { error: leadUpdateError } = await supabase
     .from("leads")

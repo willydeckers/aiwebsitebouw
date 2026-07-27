@@ -34,43 +34,31 @@ export async function partnerGraphQL<T>(
   return json.data as T;
 }
 
-// NOTE: same caveat as before — the exact developmentStoreCreate mutation
-// shape is written from best-effort recollection, not verified against
-// live Shopify Partner API docs. Confirm before relying on this.
-const CREATE_DEV_STORE_MUTATION = `
-  mutation DevelopmentStoreCreate($input: DevelopmentStoreCreateInput!) {
-    developmentStoreCreate(input: $input) {
-      store { id name primaryDomain }
-      userErrors { field message }
-    }
-  }
-`;
-
-type DevelopmentStoreCreateResponse = {
-  developmentStoreCreate: {
-    store: { id: string; name: string; primaryDomain: string } | null;
-    userErrors: { field: string[]; message: string }[];
-  };
-};
-
-export async function createDevelopmentStore(
-  storeName: string,
-): Promise<{ storeId: string; domain: string }> {
-  const data = await partnerGraphQL<DevelopmentStoreCreateResponse>(
-    CREATE_DEV_STORE_MUTATION,
-    { input: { name: storeName, storeType: "DAWN" } },
+/**
+ * Spec 3.8 asks for "Development store via Shopify Partner API". That is not
+ * possible, and it is not a limitation of our credentials.
+ *
+ * A `developmentStoreCreate` mutation used to live here, written from
+ * recollection and flagged as unverified. It was validated against the real
+ * Partner API schema on 2026-07-27: both the mutation and its input type do
+ * not exist. The Partner API exposes exactly two mutations — appCreditCreate
+ * and appSubscriptionCancel — and is otherwise a read API over apps, themes,
+ * events and financials. There is no store-creation endpoint to call, so no
+ * amount of fixing the query shape would have made this work.
+ *
+ * Creating a development store is a manual action in the Partner Dashboard.
+ * The flow is therefore: create it there, then hand its domain to the
+ * shopify_opbouw job, which wires up klanten/leads/site_versions from it (see
+ * shopify-build-job.ts). This function remains only so that a future caller
+ * assuming the automated path fails with the reason instead of a confusing
+ * GraphQL error.
+ */
+export function createDevelopmentStore(): Promise<never> {
+  return Promise.reject(
+    new Error(
+      "De Shopify Partner API kan geen development store aanmaken — die mutation bestaat niet " +
+        "(enkel appCreditCreate en appSubscriptionCancel zijn beschikbaar). Maak de store manueel " +
+        "aan in het Partner Dashboard en geef het domein mee bij het omzetten naar Shopify-klant.",
+    ),
   );
-
-  const { store, userErrors } = data.developmentStoreCreate;
-
-  if (userErrors.length > 0) {
-    throw new Error(
-      `Kon development store niet aanmaken: ${userErrors.map((e) => e.message).join("; ")}`,
-    );
-  }
-  if (!store) {
-    throw new Error("Geen store teruggekregen van de Partner API.");
-  }
-
-  return { storeId: store.id, domain: store.primaryDomain };
 }

@@ -11,13 +11,14 @@ export function ConvertButton({
   onChanged: () => void;
 }) {
   const [choosing, setChoosing] = useState(false);
+  const [shopifyDomein, setShopifyDomein] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   function handleChoose(type: "statisch" | "shopify") {
     setError(null);
     startTransition(async () => {
-      const result = await convertToKlant(leadId, type);
+      const result = await convertToKlant(leadId, type, shopifyDomein);
       if (result) {
         setError(result);
       } else {
@@ -42,6 +43,18 @@ export function ConvertButton({
   return (
     <div className="space-y-1">
       <p className="text-xs text-slate-500">Kies het type (spec sectie 3.7 — eenrichtingsverkeer):</p>
+      <div className="space-y-1">
+        <input
+          value={shopifyDomein}
+          onChange={(e) => setShopifyDomein(e.target.value)}
+          placeholder="mijnwinkel.myshopify.com"
+          className="w-full rounded-xl border border-blue-200 px-2 py-1 text-xs text-slate-900 outline-none focus:border-blue-400"
+        />
+        <p className="text-[11px] leading-snug text-slate-400">
+          Enkel voor Shopify: maak de development store eerst zelf aan in het Partner Dashboard en plak
+          hier het domein. Shopify biedt geen API om een store aan te maken.
+        </p>
+      </div>
       <div className="flex gap-2">
         <button
           type="button"

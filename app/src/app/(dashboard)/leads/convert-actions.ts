@@ -3,14 +3,19 @@ import { logAudit } from "@/lib/audit";
 
 /**
  * Spec section 3.7/2: statisch conversion is a plain DB write (no secret
- * needed). Shopify conversion enqueues a shopify_opbouw job — that's a
- * "zware taak" per spec section 2, processed by the separate hosted
- * worker (not an Edge Function), which creates the actual development
- * store via the Shopify Partner API and then writes klanten/leads itself.
+ * needed). Shopify conversion enqueues a shopify_opbouw job — a "zware taak"
+ * per spec section 2, processed by the separate hosted worker.
+ *
+ * That job used to be expected to create the development store itself. It
+ * can't: the Partner API has no store-creation mutation (verified against the
+ * live schema — see worker/src/shared/shopify-partner-client.ts). The store is
+ * created by hand in the Partner Dashboard and its domain passed in here; the
+ * job does everything after that point.
  */
 export async function convertToKlant(
   leadId: string,
   type: "statisch" | "shopify",
+  shopifyDomain?: string,
 ): Promise<string | null> {
   const supabase = createClient();
 
@@ -39,9 +44,17 @@ export async function convertToKlant(
     return null;
   }
 
+  const domein = shopifyDomain?.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "");
+  if (!domein || !/^[a-z0-9-]+\.myshopify\.com$/.test(domein)) {
+    return (
+      "Vul het myshopify.com-domein in van de development store die je in het Partner Dashboard " +
+      "hebt aangemaakt (bv. mijnwinkel.myshopify.com). Shopify biedt geen API om die store voor ons aan te maken."
+    );
+  }
+
   const { error: jobError } = await supabase
     .from("jobs")
-    .insert({ lead_id: leadId, type: "shopify_opbouw", status: "wachtrij" });
+    .insert({ lead_id: leadId, type: "shopify_opbouw", status: "wachtrij", payload: { shopifyDomain: domein } });
 
   if (jobError) {
     if (jobError.code === "23505") {
