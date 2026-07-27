@@ -105,6 +105,7 @@ export function regenerateWithFeedback(
   stijlvoorkeuren: { regel: string; context: string | null }[],
   sectorKennis: { regel: string }[],
   feedback: string,
+  bestanden: string[] = [],
 ): Promise<GenerateResult> {
   return genereerSite(
     lead,
@@ -125,6 +126,7 @@ export async function genereerSite(
   stijlvoorkeuren: { regel: string; context: string | null }[],
   sectorKennis: { regel: string }[],
   extraInstructies: string | null,
+  bestanden: string[] = [],
 ): Promise<GenerateResult> {
   const client = createAnthropicClient();
 
@@ -191,7 +193,7 @@ export async function genereerSite(
 
   return {
     bron,
-    paginas: bouwSite(bron, lead.bedrijfsnaam),
+    paginas: bouwSite(bron, lead.bedrijfsnaam, { bestanden }),
     usage: { model: MODEL, tokensIn, tokensOut },
   };
 }

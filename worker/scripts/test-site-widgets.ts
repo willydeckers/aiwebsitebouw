@@ -154,15 +154,17 @@ test("weigert een inline onclick-handler", () => {
   assert.match(r[0].reden, /inline onclick/);
 });
 
-test("vult endpoints in op formulier- en reviewblokken", () => {
+test("vult relatieve endpoints in op formulier- en reviewblokken", () => {
   const html = `<div data-widget="formulier" data-soort="contact"></div><div data-widget="reviews"></div>`;
-  const uit = vulEndpointsIn(html, "lead-1");
-  assert.ok(uit.includes('data-endpoint="/lead-1/formulier"'), uit);
-  assert.ok(uit.includes('data-endpoint="/lead-1/reviews"'), uit);
+  const uit = vulEndpointsIn(html);
+  // Relatief, niet root-absoluut: dezelfde bestanden worden zowel onder
+  // .../track-and-serve/{leadId}/ als straks op een eigen domein geserveerd.
+  assert.ok(uit.includes('data-endpoint="formulier"'), uit);
+  assert.ok(uit.includes('data-endpoint="reviews"'), uit);
+  assert.ok(!uit.includes('data-endpoint="/'), "endpoint mag niet met / beginnen");
   // Idempotent: opnieuw invullen levert niet twee attributen op.
-  const nogmaals = vulEndpointsIn(uit, "lead-2");
+  const nogmaals = vulEndpointsIn(uit);
   assert.equal((nogmaals.match(/data-endpoint=/g) ?? []).length, 2);
-  assert.ok(nogmaals.includes('data-endpoint="/lead-2/formulier"'));
 });
 
 test("runtime bevat geen externe verwijzingen", () => {

@@ -7,15 +7,6 @@
 // import specifier below (Deno wants ./site-widgets.ts, Node/tsx wants
 // ./site-widgets.js). Everything else is byte-identical; keep it that way.
 
-import {
-  WIDGET_PROMPT,
-  WIDGET_RUNTIME,
-  controleerGeenEigenScripts,
-  controleerWidgets,
-  vulEndpointsIn,
-  type WidgetProbleem,
-} from "./site-widgets.ts";
-//
 // Why the model doesn't just emit N finished HTML files: it can't be trusted to
 // repeat a navigation bar and footer byte-for-byte across four pages, nor to
 // mark the right link as active on each one, nor to keep every internal href
@@ -24,6 +15,15 @@ import {
 // assembles the pages deterministically. Consistency of nav/footer is then a
 // property of the code, not of the model's diligence, and internal links are
 // resolved-or-rejected here before anything reaches Storage.
+
+import {
+  WIDGET_PROMPT,
+  WIDGET_RUNTIME,
+  controleerGeenEigenScripts,
+  controleerWidgets,
+  vulEndpointsIn,
+  type WidgetProbleem,
+} from "./site-widgets.ts";
 
 export type PaginaMeta = {
   /** File name inside the version folder, e.g. "over-ons.html". */
@@ -38,6 +38,11 @@ export type PaginaMeta = {
    * controleerHierarchie for why.
    */
   ouder?: string | null;
+  /**
+   * "beveiligd" means track-and-serve only sends this page to a browser that
+   * has presented the lead's access code. Absent = "publiek".
+   */
+  toegang?: "publiek" | "beveiligd";
 };
 
 /** The model's output, parsed. This is what gets stored as `bron.json` next to
@@ -126,13 +131,26 @@ export function parseSiteBron(raw: string): SiteBron {
         `Ongeldige bestandsnaam "${pagina.bestand}" — enkel kleine letters, cijfers en koppeltekens, eindigend op .html.`,
       );
     }
+    if (pagina.toegang && pagina.toegang !== "publiek" && pagina.toegang !== "beveiligd") {
+      throw new SiteBuildError(
+        `Pagina ${pagina.bestand} heeft toegang "${pagina.toegang}" — enkel "publiek" of "beveiligd".`,
+      );
+    }
     return {
       bestand: pagina.bestand,
       titel: pagina.titel,
       nav_label: pagina.nav_label,
       ouder: pagina.ouder ?? null,
+      toegang: pagina.toegang ?? "publiek",
     };
   });
+
+  // The home page is the entry point every outreach link lands on; gating it
+  // would mean a lead clicking the mail gets a code prompt and nothing else.
+  const beveiligdeHome = paginas.find((p) => p.bestand === "index.html" && p.toegang === "beveiligd");
+  if (beveiligdeHome) {
+    throw new SiteBuildError("index.html kan niet beveiligd zijn — dat is de pagina waar de e-maillink op uitkomt.");
+  }
 
   controleerHierarchie(paginas);
 
@@ -454,8 +472,6 @@ function escapeHtml(waarde: string): string {
  * is what makes requirement "consistent nav/footer" hold by construction.
  */
 export type BouwOpties = {
-  /** Used to fill in the hosting endpoints on form/review widgets. */
-  leadId?: string;
   /** Names of the files uploaded for this lead, e.g. ["brochure.pdf"]. A
    *  download link to anything not in this list fails the build — the same
    *  rule as page links, for the same reason. Undefined = don't check (a
@@ -468,7 +484,7 @@ export function bouwSite(
   bedrijfsnaam: string,
   opties: BouwOpties = {},
 ): GebouwdePagina[] {
-  const { leadId, bestanden } = opties;
+  const { bestanden } = opties;
   if (!bron.paginas.some((p) => p.bestand === "index.html")) {
     throw new SiteBuildError("De site heeft geen index.html — dat is verplicht als startpagina.");
   }
@@ -603,10 +619,9 @@ export function bouwSite(
       ].join("\n"),
     };
 
-    // The model never writes a hosting URL into the markup: the builder knows
-    // the lead id, and this keeps working when the custom domain from spec
-    // section 2 replaces the raw function URL.
-    return leadId ? { ...gebouwd, html: vulEndpointsIn(gebouwd.html, leadId) } : gebouwd;
+    // The model never writes a hosting endpoint into the markup; see
+    // vulEndpointsIn for why the values it fills in are relative.
+    return { ...gebouwd, html: vulEndpointsIn(gebouwd.html) };
   });
 }
 

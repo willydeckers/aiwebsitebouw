@@ -13,6 +13,7 @@ import { ConvertButton } from "./convert-button";
 import { CostSummaryView } from "./cost-summary-view";
 import { DeleteLeadButton } from "./delete-lead-button";
 import { VersionHistory } from "./version-history";
+import { SiteInteractiePanel } from "./site-interactie-panel";
 
 export function LeadDetailPanel({
   lead,
@@ -357,6 +358,8 @@ export function LeadDetailPanel({
         ) : null}
 
         <VersionHistory leadId={lead.id} versions={siteVersions} onChanged={onChanged} />
+
+        <SiteInteractiePanel leadId={lead.id} />
 
         {costSummary ? <CostSummaryView summary={costSummary} /> : null}
 

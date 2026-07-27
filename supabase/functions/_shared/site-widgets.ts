@@ -491,21 +491,24 @@ export function controleerGeenEigenScripts(bestand: string, html: string, isHead
 }
 
 /**
- * Fills in `data-endpoint` on every widget that talks to the hosting layer.
- * The generated markup never contains a hosting URL — the builder knows the
- * lead id, the model doesn't, and a hard-coded one would break the moment the
- * custom domain from spec section 2 lands.
+ * Fills in `data-endpoint` on every widget that talks back to the hosting
+ * layer, so the model never has to write one.
+ *
+ * The values are RELATIVE on purpose. The same files are served from a
+ * function URL today (`…/track-and-serve/{leadId}/`) and from the custom
+ * domain spec section 2 asks for later (`demo.jouwagency.be/{slug}/`), and a
+ * root-absolute path would be wrong on one of the two. Relative to the version
+ * directory — which is exactly why track-and-serve redirects `/{leadId}` to
+ * `/{leadId}/` — both resolve to the right place, the same way the pages'
+ * links to each other already do.
  */
-export function vulEndpointsIn(html: string, leadId: string): string {
-  return html
-    .replace(
-      /(<[a-z]+\b[^>]*\bdata-widget\s*=\s*"formulier"[^>]*)>/gi,
-      (_m, open) => `${open.replace(/\s+data-endpoint="[^"]*"/gi, "")} data-endpoint="/${leadId}/formulier">`,
-    )
-    .replace(
-      /(<[a-z]+\b[^>]*\bdata-widget\s*=\s*"reviews"[^>]*)>/gi,
-      (_m, open) => `${open.replace(/\s+data-endpoint="[^"]*"/gi, "")} data-endpoint="/${leadId}/reviews">`,
+export function vulEndpointsIn(html: string): string {
+  const zet = (bron: string, widget: string, endpoint: string) =>
+    bron.replace(
+      new RegExp(`(<[a-z]+\\b[^>]*\\bdata-widget\\s*=\\s*"${widget}"[^>]*)>`, "gi"),
+      (_m, open: string) => `${open.replace(/\s+data-endpoint="[^"]*"/gi, "")} data-endpoint="${endpoint}">`,
     );
+  return zet(zet(html, "formulier", "formulier"), "reviews", "reviews");
 }
 
 // ─────────────────────────────────────────────────────────────────────────

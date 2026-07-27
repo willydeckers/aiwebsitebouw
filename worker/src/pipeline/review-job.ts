@@ -147,11 +147,20 @@ export async function processReviewJob(supabase: SupabaseClient, jobId: string, 
       .select("regel")
       .eq("sector", lead.sector);
 
+    // Same download list the first generation got — without it a regeneration
+    // could link a brochure that no longer exists and the build would fail
+    // mid-loop instead of just not using it.
+    const { data: bestandRijen } = await supabase
+      .from("site_bestanden")
+      .select("bestandsnaam")
+      .eq("lead_id", leadId);
+
     const { bron, paginas: nieuwePaginas, usage: generateUsage } = await regenerateWithFeedback(
       lead,
       stijlvoorkeuren ?? [],
       sectorKennis ?? [],
       feedback,
+      (bestandRijen ?? []).map((b: { bestandsnaam: string }) => b.bestandsnaam),
     );
 
     await supabase.rpc("record_project_kost_if_under_budget", {

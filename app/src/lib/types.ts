@@ -135,3 +135,41 @@ export type Job = {
   pogingen: number;
   aangemaakt_op: string;
 };
+
+// ── Interactive site features (forms/reviews, downloads, gated pages) ─────
+
+export const INZENDING_STATUSSEN = ["nieuw", "gelezen", "goedgekeurd", "afgekeurd", "spam"] as const;
+export type InzendingStatus = (typeof INZENDING_STATUSSEN)[number];
+
+export type SiteInzending = {
+  id: string;
+  lead_id: string;
+  soort: "contact" | "offerte" | "review";
+  naam: string | null;
+  email: string | null;
+  bericht: string | null;
+  score: number | null;
+  extra: Record<string, string> | null;
+  status: InzendingStatus;
+  aangemaakt_op: string;
+};
+
+export type SiteBestand = {
+  id: string;
+  lead_id: string;
+  bestandsnaam: string;
+  opslag_pad: string;
+  content_type: string | null;
+  grootte_bytes: number | null;
+  omschrijving: string | null;
+  toegevoegd_door: string | null;
+  aangemaakt_op: string;
+};
+
+/** Never carries the code or its hash — only whether one is set. */
+export type SiteToegang = {
+  lead_id: string;
+  hint: string | null;
+  aangemaakt_op: string;
+  aangemaakt_door: string | null;
+};

@@ -31,19 +31,38 @@ export async function processGenerateJob(
 
   await supabase.from("leads").update({ status: "genereren" }).eq("id", leadId);
 
-  const [{ data: stijlvoorkeuren }, { data: sectorKennis }, { data: bestaandConcept }] = await Promise.all([
-    supabase.from("stijlvoorkeuren").select("regel, context"),
-    supabase.from("sector_kennis").select("regel").eq("sector", lead.sector),
-    supabase.from("site_versions").select("*").eq("lead_id", leadId).eq("status", "concept").maybeSingle(),
-  ]);
+  const [{ data: stijlvoorkeuren }, { data: sectorKennis }, { data: bestaandConcept }, { data: bestandRijen }] =
+    await Promise.all([
+      supabase.from("stijlvoorkeuren").select("regel, context"),
+      supabase.from("sector_kennis").select("regel").eq("sector", lead.sector),
+      supabase.from("site_versions").select("*").eq("lead_id", leadId).eq("status", "concept").maybeSingle(),
+      supabase.from("site_bestanden").select("bestandsnaam, omschrijving").eq("lead_id", leadId),
+    ]);
+
+  // Downloads can only point at files that actually exist, so the list is both
+  // an input to the prompt and a hard check in the builder — the generator
+  // can't invent a brochure the way it once invented Unsplash IDs.
+  const bestandLijst = (bestandRijen ?? []) as { bestandsnaam: string; omschrijving: string | null }[];
+  const bestanden = bestandLijst.map((b) => b.bestandsnaam);
+  const bestandenBriefing = bestandLijst.length
+    ? "Beschikbare downloadbestanden voor deze klant. Link ernaar met href=\"bestanden/<naam>\" en " +
+      "link nooit naar een bestand dat hier niet bij staat:\n" +
+      bestandLijst.map((b) => `- ${b.bestandsnaam}${b.omschrijving ? ` — ${b.omschrijving}` : ""}`).join("\n")
+    : "Er zijn geen downloadbestanden voor deze klant — gebruik dus geen downloads-blok.";
 
   const { bron, paginas: gebouwd, usage } = await genereerSite(
     lead,
     stijlvoorkeuren ?? [],
     sectorKennis ?? [],
-    payload?.extraContext
-      ? `Dit is een herziening — verwerk expliciet de volgende extra instructies of feedback:\n${payload.extraContext}`
-      : null,
+    [
+      bestandenBriefing,
+      payload?.extraContext
+        ? `Dit is een herziening — verwerk expliciet de volgende extra instructies of feedback:\n${payload.extraContext}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+    bestanden,
   );
 
   const { data: budgetResult, error: budgetError } = await supabase.rpc("record_project_kost_if_under_budget", {
