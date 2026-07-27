@@ -109,7 +109,12 @@ Deno.serve(async (req) => {
 
     jobId = job.id;
 
-    await supabase.from("leads").update({ status: "research" }).eq("id", leadId);
+    // Same guard as generatie: re-running research on a lead that's already
+    // moved further along the pipeline (e.g. a klant asking for a refresh)
+    // shouldn't drag its status backwards.
+    if (!["klaar", "verzonden", "geopend", "klant"].includes(lead.status)) {
+      await supabase.from("leads").update({ status: "research" }).eq("id", leadId);
+    }
 
     const client = createAnthropicClient();
     const userMessage = [
