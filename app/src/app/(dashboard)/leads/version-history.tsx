@@ -2,7 +2,13 @@
 
 import { useState, useTransition } from "react";
 import type { SiteVersion, SiteVersionStatus } from "@/lib/types";
-import { activateVersion, fetchDemoHtml, revertToVersion } from "./version-actions";
+import { activateVersion, fetchDemoSite, revertToVersion } from "./version-actions";
+import {
+  bouwPreviewDocument,
+  PREVIEW_NAVIGATIE_BERICHT,
+  START_PAGINA,
+  type PreviewNavigatieBericht,
+} from "./preview-document";
 
 const STATUS_LABELS: Record<SiteVersionStatus, string> = {
   concept: "Concept",
@@ -50,16 +56,43 @@ export function VersionHistory({
       "<p style='font-family:sans-serif;padding:2rem;color:#64748b'>Laden...</p>";
 
     startTransition(async () => {
-      const html = await fetchDemoHtml(version.content_referentie!);
-      if (!html) {
+      const site = await fetchDemoSite(version);
+      if (!site) {
         setError("Kon deze versie niet ophalen.");
         popup.close();
         return;
       }
+
+      // The site's pages live in memory here, not at a URL, so the popup gets
+      // a full-window iframe it can swap between them (see preview-document.ts
+      // for why the pages can't just link to each other directly). Built with
+      // DOM calls rather than document.write of a script: same-origin popup,
+      // so no escaping of the page HTML is needed anywhere.
       popup.document.open();
-      popup.document.write(html);
+      popup.document.write(
+        "<!DOCTYPE html><html lang='nl'><head><meta charset='utf-8'>" +
+          "<style>html,body{margin:0;height:100%}iframe{display:block;border:0;width:100%;height:100%}</style>" +
+          "</head><body><iframe id='pagina'></iframe></body></html>",
+      );
       popup.document.close();
       popup.document.title = `Versie ${version.versienummer} — preview`;
+
+      const frame = popup.document.getElementById("pagina") as HTMLIFrameElement;
+      const toon = (bestand: string, hash: string) => {
+        frame.srcdoc = bouwPreviewDocument(site[bestand], hash);
+      };
+
+      popup.addEventListener("message", (event: MessageEvent) => {
+        const bericht = event.data as PreviewNavigatieBericht | undefined;
+        if (bericht?.type !== PREVIEW_NAVIGATIE_BERICHT) return;
+        if (!site[bericht.bestand]) {
+          popup.alert(`Deze link wijst naar ${bericht.bestand}, maar die pagina bestaat niet in deze versie.`);
+          return;
+        }
+        toon(bericht.bestand, bericht.hash);
+      });
+
+      toon(START_PAGINA, "");
       popup.focus();
     });
   }

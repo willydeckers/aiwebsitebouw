@@ -4,7 +4,13 @@ import { useEffect, useState, useTransition } from "react";
 import type { Lead, ReviewLogEntry, SiteVersion } from "@/lib/types";
 import { startGeneration } from "./generate-actions";
 import { startPatchEdit } from "./patch-actions";
-import { fetchDemoHtml } from "./version-actions";
+import { fetchDemoSite, type DemoSite } from "./version-actions";
+import {
+  bouwPreviewDocument,
+  PREVIEW_NAVIGATIE_BERICHT,
+  START_PAGINA,
+  type PreviewNavigatieBericht,
+} from "./preview-document";
 import { SendDialog } from "./send-dialog";
 
 type Viewport = "desktop" | "mobiel";
@@ -39,7 +45,9 @@ export function DemoPreview({
   const [chatPending, startChatTransition] = useTransition();
   const [previewVersion, setPreviewVersion] = useState(0);
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
-  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [site, setSite] = useState<DemoSite | null>(null);
+  const [huidigePagina, setHuidigePagina] = useState(START_PAGINA);
+  const [previewHash, setPreviewHash] = useState("");
   const [previewError, setPreviewError] = useState<string | null>(null);
 
   // Loads the actual demo content so it renders where a preview should be,
@@ -47,19 +55,50 @@ export function DemoPreview({
   // don't have one until their first version is approved (spec 3.4), and
   // that's exactly when you most want to see the concept.
   useEffect(() => {
-    const path = siteVersion.content_referentie;
     let cancelled = false;
 
-    (path ? fetchDemoHtml(path) : Promise.resolve(null)).then((html) => {
+    fetchDemoSite(siteVersion).then((geladen) => {
       if (cancelled) return;
-      setPreviewHtml(html);
-      setPreviewError(path && !html ? "Kon deze versie niet laden." : null);
+      setSite(geladen);
+      setHuidigePagina(START_PAGINA);
+      setPreviewHash("");
+      setPreviewError(siteVersion.content_referentie && !geladen ? "Kon deze versie niet laden." : null);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [siteVersion.content_referentie, previewVersion]);
+    // siteVersion is re-fetched by the parent on every change; the two fields
+    // below are what actually determine the content, plus previewVersion which
+    // forces a reload after a chat-edit rewrote the same paths.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siteVersion.content_referentie, siteVersion.paginas, previewVersion]);
+
+  // Internal links inside the preview can't navigate on their own (no origin,
+  // no directory — see preview-document.ts), so the iframe asks for the page
+  // and the swap happens here.
+  useEffect(() => {
+    function onMessage(event: MessageEvent) {
+      const bericht = event.data as PreviewNavigatieBericht | undefined;
+      if (bericht?.type !== PREVIEW_NAVIGATIE_BERICHT) return;
+      if (!site) return;
+      if (!site[bericht.bestand]) {
+        setPreviewError(`Deze link wijst naar ${bericht.bestand}, maar die pagina bestaat niet in deze versie.`);
+        return;
+      }
+      setPreviewError(null);
+      setHuidigePagina(bericht.bestand);
+      setPreviewHash(bericht.hash);
+    }
+
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [site]);
+
+  const paginaLabel = (bestand: string) =>
+    siteVersion.paginas?.find((p) => p.bestand === bestand)?.nav_label ?? bestand;
+
+  const previewHtml = site?.[huidigePagina] ?? null;
 
   function handleRegenerate() {
     setError(null);
@@ -104,7 +143,14 @@ export function DemoPreview({
   return (
     <section className="mt-6 space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-slate-700">Demo-preview</h3>
+        <h3 className="text-sm font-medium text-slate-700">
+          Demo-preview
+          {site && Object.keys(site).length > 1 ? (
+            <span className="ml-2 font-normal text-slate-400">
+              {paginaLabel(huidigePagina)} — klik in de navigatie om te bladeren
+            </span>
+          ) : null}
+        </h3>
         <div className="flex gap-1 text-xs">
           {(["desktop", "mobiel"] as const).map((v) => (
             <button
@@ -126,17 +172,17 @@ export function DemoPreview({
       <div className="overflow-hidden rounded-xl border border-blue-100 bg-blue-50/60">
         {previewHtml ? (
           <iframe
-            srcDoc={previewHtml}
-            title="Demo-preview"
+            key={`${huidigePagina}${previewHash}`}
+            srcDoc={bouwPreviewDocument(previewHtml, previewHash)}
+            title={`Demo-preview — ${paginaLabel(huidigePagina)}`}
             className="h-[500px] bg-white/80 transition-[width]"
             style={{ width: VIEWPORT_WIDTH[viewport] }}
           />
         ) : (
-          <p className="p-4 text-xs text-slate-400">
-            {previewError ?? "Preview laden..."}
-          </p>
+          <p className="p-4 text-xs text-slate-400">{previewError ?? "Preview laden..."}</p>
         )}
       </div>
+      {previewHtml && previewError ? <p className="text-xs text-red-600">{previewError}</p> : null}
 
       {demoUrl ? (
         <p className="text-xs text-slate-400">

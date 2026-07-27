@@ -14,6 +14,34 @@ export async function fetchDemoHtml(path: string): Promise<string | null> {
   return await data.text();
 }
 
+/** bestand -> HTML for every page of a version. Single-file versions from
+ *  before multi-page support come back as a one-entry map keyed "index.html",
+ *  so preview code has one shape to deal with. */
+export type DemoSite = Record<string, string>;
+
+export async function fetchDemoSite(version: SiteVersion): Promise<DemoSite | null> {
+  if (!version.content_referentie) return null;
+
+  if (!version.paginas?.length) {
+    const html = await fetchDemoHtml(version.content_referentie);
+    return html ? { "index.html": html } : null;
+  }
+
+  const map = version.content_referentie.replace(/\/index\.html$/, "");
+  const entries = await Promise.all(
+    version.paginas.map(async (pagina) => [pagina.bestand, await fetchDemoHtml(`${map}/${pagina.bestand}`)] as const),
+  );
+
+  const site: DemoSite = {};
+  for (const [bestand, html] of entries) {
+    // A page that fails to download is left out rather than failing the whole
+    // preview — the rest of the site is still worth looking at, and the
+    // preview reports the missing page when a link leads to it.
+    if (html !== null) site[bestand] = html;
+  }
+  return site["index.html"] ? site : null;
+}
+
 // Spec 3.8: "Maak deze actief publiceert zonder de live site te verstoren."
 // The one-actief-per-lead partial unique index means only one row can be
 // 'actief' at a time, so the previous one is demoted to 'afgerond' first —
@@ -57,11 +85,6 @@ export async function revertToVersion(leadId: string, source: SiteVersion): Prom
 
   const supabase = createClient();
 
-  const { data: fileData, error: downloadError } = await supabase.storage
-    .from("demos")
-    .download(source.content_referentie);
-  if (downloadError || !fileData) return `Kon versie-inhoud niet ophalen: ${downloadError?.message}`;
-
   const { data: latest } = await supabase
     .from("site_versions")
     .select("versienummer")
@@ -71,19 +94,38 @@ export async function revertToVersion(leadId: string, source: SiteVersion): Prom
     .maybeSingle();
 
   const versienummer = (latest?.versienummer ?? 0) + 1;
-  const storagePath = `${leadId}/${versienummer}.html`;
 
-  const { error: uploadError } = await supabase.storage
-    .from("demos")
-    .upload(storagePath, fileData, { contentType: "text/html" });
-  if (uploadError) return `Kon herstelde versie niet opslaan: ${uploadError.message}`;
+  // A multi-page version is a whole folder (every page plus the bron.json
+  // chat-edit patches through), so the copy has to be folder-to-folder. A
+  // single-file version from before multi-page support is copied into the new
+  // folder layout as its index.html, which is also what makes it editable and
+  // extendable as a multi-page site from here on.
+  const bronMap = source.content_referentie.replace(/\/index\.html$/, "").replace(/\.html$/, "");
+  const doelMap = `${leadId}/${versienummer}`;
+  const teKopieren = source.paginas?.length
+    ? [...source.paginas.map((p) => p.bestand), "bron.json"]
+    : ["index.html"];
+
+  for (const bestand of teKopieren) {
+    const bronPad = source.paginas?.length ? `${bronMap}/${bestand}` : source.content_referentie;
+    const { data: fileData, error: downloadError } = await supabase.storage.from("demos").download(bronPad);
+    if (downloadError || !fileData) return `Kon ${bestand} niet ophalen: ${downloadError?.message}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("demos")
+      .upload(`${doelMap}/${bestand}`, fileData, {
+        contentType: bestand.endsWith(".json") ? "application/json" : "text/html",
+      });
+    if (uploadError) return `Kon herstelde versie niet opslaan: ${uploadError.message}`;
+  }
 
   const { error: insertError } = await supabase.from("site_versions").insert({
     lead_id: leadId,
     site_type: source.site_type,
     versienummer,
     status: "afgerond",
-    content_referentie: storagePath,
+    content_referentie: `${doelMap}/index.html`,
+    paginas: source.paginas,
     prompt_versie: source.prompt_versie,
   });
   if (insertError) return `Kon nieuwe versie niet aanmaken: ${insertError.message}`;
