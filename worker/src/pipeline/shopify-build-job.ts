@@ -8,6 +8,29 @@ import { createDevelopmentStore } from "../shared/shopify-partner-client.js";
 // custom-app install or OAuth grant against the new store) is a manual
 // one-time step; chat-edit-shopify/staff-invite already refuse to run
 // until klanten.shopify_access_token is populated.
+//
+// Multi-page and Shopify — a deliberate split, not an oversight:
+// site-builder.ts assembles standalone HTML files, and none of that applies
+// here. Shopify owns its own page system: pages are `Page` records, the
+// navigation is a `Menu` the theme renders, the footer is a theme section,
+// and Dawn already marks the current menu item with aria-current. Generating
+// our own nav/footer markup into a Shopify store would fight the theme
+// instead of using it, so the static builder deliberately stops at the
+// `statisch`/`demo` site types (track-and-serve already 404s for
+// klant_type = shopify, spec section 2).
+//
+// What DOES carry over is the decomposition. A `SiteBron` splits a site into
+// exactly the parts Shopify wants separately:
+//   bron.paginas   -> one `pageCreate` per entry (titel -> title, bestand
+//                     minus .html -> handle), plus `menuCreate`/`menuUpdate`
+//                     items pointing at those handles for the nav
+//   bron.bodies[x] -> that page's `body` HTML (already nav/footer/head-free,
+//                     which is exactly what a Shopify page body must be)
+//   bron.head/nav/footer -> dropped; the theme provides these
+// Nothing below does that yet — porting a demo's content into the new store
+// isn't built for any site type — but the shape is there when it is, and the
+// Admin API mutations involved are still unverified against a live Partner
+// account (see CLAUDE.md's known gaps).
 export async function processShopifyBuildJob(supabase: SupabaseClient, jobId: string, leadId: string) {
   const { data: lead, error: leadError } = await supabase
     .from("leads")
