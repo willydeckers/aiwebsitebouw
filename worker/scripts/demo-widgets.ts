@@ -1,9 +1,14 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { bouwSite, parseSiteBron } from "../src/shared/site-builder.js";
 
-// Builds a throwaway site that exercises every widget, straight through the
-// real builder, so the runtime can be driven in a browser.
-const uit = process.env.UIT!;
+// Builds a small site that exercises every widget, straight through the real
+// builder, so the runtime can be driven in an actual browser. The unit tests
+// cover the markup contract; this covers the behaviour — clicking a tab,
+// scoring a quiz, checking that a video embed stays unrequested until asked.
+//
+//   cd worker && UIT=/tmp/widgets npx tsx scripts/demo-widgets.ts
+//   (serve that directory and open index.html)
+const uit = process.env.UIT ?? "widgetdemo";
 
 const BRON = `===META===
 {"paginas":[
