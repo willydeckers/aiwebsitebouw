@@ -99,6 +99,7 @@ export type ReviewLogEntry = {
   bron: string;
   instructie_of_bevinding: string | null;
   resultaat: string | null;
+  ai_antwoord: string | null;
   error_message: string | null;
   prompt_versie: string | null;
   timestamp: string;

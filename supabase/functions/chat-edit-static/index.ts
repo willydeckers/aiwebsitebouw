@@ -72,6 +72,8 @@ Deno.serve(async (req) => {
     let file = await fileData.text();
     let tokensIn = 0;
     let tokensOut = 0;
+    let editApplied = false;
+    let antwoord = "";
 
     const client = createAnthropicClient();
     const messages: Anthropic.MessageParam[] = [
@@ -91,6 +93,14 @@ Deno.serve(async (req) => {
       tokensOut += response.usage.output_tokens;
       messages.push({ role: "assistant", content: response.content });
 
+      const textBlock = response.content.find((b) => b.type === "text");
+      if (textBlock && textBlock.type === "text") antwoord = textBlock.text;
+
+      // A turn with no tool_use means the model stopped editing — either
+      // it's done, or (just as likely with an ambiguous instruction) it's
+      // asking a clarifying question instead. Either way there's nothing
+      // more to apply; `antwoord` carries whatever it actually said back
+      // to the user rather than the UI silently assuming success.
       if (response.stop_reason !== "tool_use") break;
 
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
@@ -99,7 +109,10 @@ Deno.serve(async (req) => {
         const input = block.input as Record<string, unknown>;
         try {
           const output = applyCommand(file, input);
-          if (input.command !== "view") file = output;
+          if (input.command !== "view") {
+            file = output;
+            editApplied = true;
+          }
           toolResults.push({
             type: "tool_result",
             tool_use_id: block.id,
@@ -140,34 +153,39 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { error: uploadError } = await supabase.storage
-      .from("demos")
-      .upload(siteVersion.content_referentie, file, { contentType: "text/html", upsert: true });
+    if (editApplied) {
+      const { error: uploadError } = await supabase.storage
+        .from("demos")
+        .upload(siteVersion.content_referentie, file, { contentType: "text/html", upsert: true });
 
-    if (uploadError) throw new Error(`Upload mislukt: ${uploadError.message}`);
+      if (uploadError) throw new Error(`Upload mislukt: ${uploadError.message}`);
 
-    await supabase
-      .from("site_versions")
-      .update({ laatst_bewerkt_door: user.email })
-      .eq("id", siteVersion.id);
+      await supabase
+        .from("site_versions")
+        .update({ laatst_bewerkt_door: user.email })
+        .eq("id", siteVersion.id);
+
+      // Persist the correction for future generations (spec section 3.5) —
+      // only when something was actually changed; a clarifying question
+      // isn't a style rule worth remembering.
+      await supabase.from("stijlvoorkeuren").insert({
+        regel: instruction,
+        context: `Chat-edit op lead ${leadId}`,
+        toegevoegd_door: user.email,
+      });
+    }
 
     await supabase.from("review_log").insert({
       lead_id: leadId,
       site_version_id: siteVersion.id,
       bron: "chat-edit",
       instructie_of_bevinding: instruction,
-      resultaat: "toegepast",
+      resultaat: editApplied ? "toegepast" : "geen_wijziging",
+      ai_antwoord: antwoord || null,
       prompt_versie: PROMPT_VERSIE,
     });
 
-    // Persist the correction for future generations (spec section 3.5).
-    await supabase.from("stijlvoorkeuren").insert({
-      regel: instruction,
-      context: `Chat-edit op lead ${leadId}`,
-      toegevoegd_door: user.email,
-    });
-
-    return new Response(JSON.stringify({ ok: true }), {
+    return new Response(JSON.stringify({ ok: true, toegepast: editApplied, antwoord: antwoord || null }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {

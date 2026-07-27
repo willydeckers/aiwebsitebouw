@@ -1,17 +1,24 @@
 import { createClient } from "@/lib/supabase/client";
+import { describeFunctionError } from "@/lib/supabase/function-error";
 
-export async function startPatchEdit(leadId: string, instruction: string): Promise<string | null> {
+export type PatchEditResult = {
+  error: string | null;
+  antwoord: string | null;
+  toegepast: boolean;
+};
+
+export async function startPatchEdit(leadId: string, instruction: string): Promise<PatchEditResult> {
   const supabase = createClient();
   const { data, error } = await supabase.functions.invoke("chat-edit-static", {
     body: { leadId, instruction },
   });
 
   if (error) {
-    return `Patch-edit mislukt: ${error.message}`;
+    return { error: `Patch-edit mislukt: ${await describeFunctionError(error)}`, antwoord: null, toegepast: false };
   }
   if (data?.error) {
-    return data.error as string;
+    return { error: data.error as string, antwoord: null, toegepast: false };
   }
 
-  return null;
+  return { error: null, antwoord: (data?.antwoord as string | null) ?? null, toegepast: Boolean(data?.toegepast) };
 }

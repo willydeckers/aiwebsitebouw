@@ -1,4 +1,11 @@
 import { createClient } from "@/lib/supabase/client";
+import { describeFunctionError } from "@/lib/supabase/function-error";
+
+export type KlantChatEditResult = {
+  error: string | null;
+  antwoord: string | null;
+  toegepast: boolean;
+};
 
 /**
  * Abstraction layer required by spec section 3.8: one chat interface, the
@@ -8,7 +15,7 @@ import { createClient } from "@/lib/supabase/client";
 export async function startKlantChatEdit(
   klantId: string,
   instruction: string,
-): Promise<string | null> {
+): Promise<KlantChatEditResult> {
   const supabase = createClient();
 
   const { data: klant, error } = await supabase
@@ -18,7 +25,7 @@ export async function startKlantChatEdit(
     .single();
 
   if (error || !klant) {
-    return `Klant niet gevonden: ${error?.message}`;
+    return { error: `Klant niet gevonden: ${error?.message}`, antwoord: null, toegepast: false };
   }
 
   const fn = klant.type === "shopify" ? "chat-edit-shopify" : "chat-edit-static";
@@ -28,11 +35,11 @@ export async function startKlantChatEdit(
   const { data, error: invokeError } = await supabase.functions.invoke(fn, { body });
 
   if (invokeError) {
-    return `Bewerking mislukt: ${invokeError.message}`;
+    return { error: `Bewerking mislukt: ${await describeFunctionError(invokeError)}`, antwoord: null, toegepast: false };
   }
   if (data?.error) {
-    return data.error as string;
+    return { error: data.error as string, antwoord: null, toegepast: false };
   }
 
-  return null;
+  return { error: null, antwoord: (data?.antwoord as string | null) ?? null, toegepast: Boolean(data?.toegepast) };
 }

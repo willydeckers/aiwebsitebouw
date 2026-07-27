@@ -50,6 +50,7 @@ Deno.serve(async (req) => {
     let tokensIn = 0;
     let tokensOut = 0;
     let summary = "";
+    let editApplied = false;
 
     const messages: Anthropic.MessageParam[] = [{ role: "user", content: `Instructie: ${instruction}` }];
 
@@ -69,6 +70,10 @@ Deno.serve(async (req) => {
       const textBlock = response.content.find((b) => b.type === "text");
       if (textBlock && textBlock.type === "text") summary = textBlock.text;
 
+      // No tool_use this turn means the model is done calling the Shopify
+      // API — or, for an ambiguous instruction, asking a clarifying
+      // question instead of acting on it. `summary` carries whichever one
+      // it actually is back to the user.
       if (response.stop_reason !== "tool_use") break;
 
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
@@ -82,6 +87,7 @@ Deno.serve(async (req) => {
             input.query,
             input.variables ?? {},
           );
+          editApplied = true;
           toolResults.push({ type: "tool_result", tool_use_id: block.id, content: JSON.stringify(result) });
         } catch (err) {
           toolResults.push({
@@ -120,11 +126,12 @@ Deno.serve(async (req) => {
       lead_id: klant.lead_id,
       bron: "chat-edit-shopify",
       instructie_of_bevinding: instruction,
-      resultaat: summary || "toegepast",
+      resultaat: editApplied ? "toegepast" : "geen_wijziging",
+      ai_antwoord: summary || null,
       prompt_versie: PROMPT_VERSIE,
     });
 
-    return new Response(JSON.stringify({ ok: true, summary }), {
+    return new Response(JSON.stringify({ ok: true, toegepast: editApplied, antwoord: summary || null }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {

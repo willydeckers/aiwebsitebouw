@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import type { Lead, ReviewLogEntry, SiteVersion } from "@/lib/types";
 import { startGeneration } from "./generate-actions";
 import { startPatchEdit } from "./patch-actions";
+import { fetchDemoHtml } from "./version-actions";
 import { SendDialog } from "./send-dialog";
 
 type Viewport = "desktop" | "mobiel";
@@ -38,6 +39,27 @@ export function DemoPreview({
   const [chatPending, startChatTransition] = useTransition();
   const [previewVersion, setPreviewVersion] = useState(0);
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  // Loads the actual demo content so it renders where a preview should be,
+  // regardless of whether a public hosting link exists yet — most leads
+  // don't have one until their first version is approved (spec 3.4), and
+  // that's exactly when you most want to see the concept.
+  useEffect(() => {
+    const path = siteVersion.content_referentie;
+    let cancelled = false;
+
+    (path ? fetchDemoHtml(path) : Promise.resolve(null)).then((html) => {
+      if (cancelled) return;
+      setPreviewHtml(html);
+      setPreviewError(path && !html ? "Kon deze versie niet laden." : null);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [siteVersion.content_referentie, previewVersion]);
 
   function handleRegenerate() {
     setError(null);
@@ -61,19 +83,23 @@ export function DemoPreview({
 
     startChatTransition(async () => {
       const result = await startPatchEdit(lead.id, instruction);
-      if (result) {
-        setChatMessages((prev) => [...prev, { role: "systeem", text: result }]);
-      } else {
-        setChatMessages((prev) => [...prev, { role: "systeem", text: "Wijziging doorgevoerd." }]);
+      if (result.error) {
+        setChatMessages((prev) => [...prev, { role: "systeem", text: result.error! }]);
+        return;
+      }
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          role: "systeem",
+          text: result.antwoord ?? (result.toegepast ? "Wijziging doorgevoerd." : "Geen wijziging doorgevoerd."),
+        },
+      ]);
+      if (result.toegepast) {
         setPreviewVersion((v) => v + 1);
         onChanged();
       }
     });
   }
-
-  const previewSrc = demoUrl
-    ? `${demoUrl}${demoUrl.includes("?") ? "&" : "?"}v=${previewVersion}`
-    : undefined;
 
   return (
     <section className="mt-6 space-y-3">
@@ -98,20 +124,25 @@ export function DemoPreview({
       </div>
 
       <div className="overflow-hidden rounded-xl border border-blue-100 bg-blue-50/60">
-        {previewSrc ? (
+        {previewHtml ? (
           <iframe
-            src={previewSrc}
+            srcDoc={previewHtml}
             title="Demo-preview"
             className="h-[500px] bg-white/80 transition-[width]"
             style={{ width: VIEWPORT_WIDTH[viewport] }}
           />
         ) : (
           <p className="p-4 text-xs text-slate-400">
-            Publieke hosting-URL nog niet beschikbaar (spec sectie 2 — de aparte hosting Edge
-            Function is nog niet gedeployed). Storage-pad: {siteVersion.content_referentie ?? "—"}
+            {previewError ?? "Preview laden..."}
           </p>
         )}
       </div>
+
+      {demoUrl ? (
+        <p className="text-xs text-slate-400">
+          Publieke link: <span className="text-slate-500">{demoUrl}</span>
+        </p>
+      ) : null}
 
       {reviewLog.length > 0 ? (
         <div className="space-y-1 text-sm">
@@ -127,14 +158,24 @@ export function DemoPreview({
       <div className="space-y-1">
         <h4 className="text-xs font-medium text-slate-500">Chat-based bewerken (3.5)</h4>
 
-        {chatMessages.length > 0 ? (
-          <ul className="max-h-32 space-y-1 overflow-y-auto rounded-xl border border-blue-100 p-2 text-xs">
+        {chatMessages.length > 0 || chatPending ? (
+          <ul className="max-h-40 space-y-1 overflow-y-auto rounded-xl border border-blue-100 p-2 text-xs">
             {chatMessages.map((msg, i) => (
               <li key={i} className={msg.role === "user" ? "text-slate-800" : "text-slate-500"}>
-                <span className="font-medium">{msg.role === "user" ? "Jij: " : "Systeem: "}</span>
+                <span className="font-medium">{msg.role === "user" ? "Jij: " : "AI: "}</span>
                 {msg.text}
               </li>
             ))}
+            {chatPending ? (
+              <li className="flex items-center gap-1.5 text-slate-400">
+                <span className="flex gap-0.5">
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:-0.3s]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:-0.15s]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" />
+                </span>
+                aan het verwerken...
+              </li>
+            ) : null}
           </ul>
         ) : null}
 
