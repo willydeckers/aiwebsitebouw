@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 import { logAudit } from "@/lib/audit";
+import { describeFunctionError } from "@/lib/supabase/function-error";
 
 export async function createLead(_prevState: string | null, formData: FormData) {
   const bedrijfsnaam = (formData.get("bedrijfsnaam") as string)?.trim();
@@ -33,6 +34,28 @@ export async function createLead(_prevState: string | null, formData: FormData) 
   }
 
   await logAudit("lead_aangemaakt", data.id, { bedrijfsnaam });
+
+  // Spec 3.1b: manual intake gets the same research-stap as a sourced lead.
+  // Fired without awaiting — the AI/web-search call can take a while and
+  // shouldn't block the "lead toegevoegd" confirmation; the research-stap
+  // updates leads.status itself, which Realtime picks up in the UI.
+  supabase.functions.invoke("research", { body: { leadId: data.id } }).catch(() => {
+    // Best-effort: the "Start research (test)" button covers manual retry.
+  });
+
+  return null;
+}
+
+export async function updateLeadGegevens(
+  leadId: string,
+  gegevens: { adres: string | null; contact_naam: string | null; contact_email: string | null },
+) {
+  const supabase = createClient();
+  const { error } = await supabase.from("leads").update(gegevens).eq("id", leadId);
+
+  if (error) {
+    return `Opslaan mislukt: ${error.message}`;
+  }
 
   return null;
 }
@@ -68,7 +91,7 @@ export async function deleteLead(leadId: string, bedrijfsnaam: string): Promise<
   });
 
   if (error) {
-    return `Verwijderen mislukt: ${error.message}`;
+    return `Verwijderen mislukt: ${await describeFunctionError(error)}`;
   }
   if (data?.error) {
     return data.error as string;

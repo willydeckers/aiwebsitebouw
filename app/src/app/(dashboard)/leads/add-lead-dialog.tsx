@@ -32,7 +32,7 @@ export function AddLeadDialog({
       <form
         ref={formRef}
         action={formAction}
-        className="w-full max-w-md space-y-3 rounded-3xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-blue-200/40 backdrop-blur-xl"
+        className="w-full max-w-md space-y-3 overflow-hidden rounded-3xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-blue-200/40 backdrop-blur-xl"
       >
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold text-slate-900">
@@ -41,9 +41,12 @@ export function AddLeadDialog({
           <button
             type="button"
             onClick={onClose}
-            className="text-sm text-slate-500 hover:text-slate-800"
+            aria-label="Sluiten"
+            className="rounded-full p-1.5 text-slate-400 transition-all duration-200 hover:rotate-90 hover:bg-slate-900/5 hover:text-slate-700"
           >
-            Sluiten
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
           </button>
         </div>
 
