@@ -1,6 +1,7 @@
 import { handleCorsPreflight, corsHeaders } from "../_shared/cors.ts";
-import { requireUser } from "../_shared/supabase-clients.ts";
+import { createCallerClient, requireUser } from "../_shared/supabase-clients.ts";
 import { createAnthropicClient, calculateKostEur } from "../_shared/anthropic.ts";
+import { naceLabel } from "../_shared/nace.ts";
 import { findPlaceMatch } from "../_shared/places.ts";
 import { checkWebsiteStatus, extractContactEmail, isPersoonsgebonden, type WebsiteStatus } from "../_shared/website-check.ts";
 
@@ -40,6 +41,8 @@ Deno.serve(async (req) => {
   const preflight = handleCorsPreflight(req);
   if (preflight) return preflight;
 
+  let jobId: string | null = null;
+
   try {
     const { supabase, user } = await requireUser(req);
 
@@ -54,6 +57,7 @@ Deno.serve(async (req) => {
       .select("id")
       .single();
     if (jobError) throw new Error(`Kon job niet aanmaken: ${jobError.message}`);
+    jobId = job.id;
 
     // Step 1: candidates from the KBO Open Data staging table (see the
     // migration comment on kbo_ondernemingen — this is a local import of
@@ -107,15 +111,19 @@ Deno.serve(async (req) => {
       const contactEmail = html ? extractContactEmail(html) : null;
       const contactEmailPersoonsgebonden = contactEmail ? isPersoonsgebonden(contactEmail) : null;
 
-      // Step 7: personalization pitch -> starting value for `notities`.
-      const { pitch, usage } = await generatePitch(candidate.naam, candidate.nace_code ?? "onbekend", websiteStatus);
+      // Step 7: personalization pitch -> starting value for `notities`. Uses
+      // the human-readable sector label, not the raw NACE code, so the
+      // AI-written pitch reads naturally and `leads.sector` matches what a
+      // manually-added lead's sector field looks like.
+      const sectorLabel = candidate.nace_code ? naceLabel(candidate.nace_code) : "onbekend";
+      const { pitch, usage } = await generatePitch(candidate.naam, sectorLabel, websiteStatus);
 
       // Step 8: storage.
       const { data: newLead, error: insertError } = await supabase
         .from("leads")
         .insert({
           bedrijfsnaam: candidate.naam,
-          sector: candidate.nace_code ?? "onbekend",
+          sector: sectorLabel,
           adres: candidate.adres,
           notities: pitch || null,
           status: "nieuw",
@@ -166,6 +174,19 @@ Deno.serve(async (req) => {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // See research/index.ts for why this matters: without it, a job that
+    // fails after the "bezig" insert sits there forever instead of
+    // reaching "mislukt".
+    if (jobId) {
+      try {
+        await createCallerClient(req)
+          .from("jobs")
+          .update({ status: "mislukt", error_message: message, afgerond_op: new Date().toISOString() })
+          .eq("id", jobId);
+      } catch {
+        // Best-effort — the error response below is what the caller sees regardless.
+      }
+    }
     return new Response(JSON.stringify({ error: message }), {
       status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
