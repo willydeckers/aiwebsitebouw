@@ -1,7 +1,9 @@
 import { createAnthropicClient } from "../shared/anthropic.js";
 import {
+  MAX_OUTPUT_TOKENS,
   MULTIPAGE_PROMPT,
   bouwSite,
+  knipNaLaatsteVolledigeSectie,
   parseSiteBron,
   type GebouwdePagina,
   type SiteBron,
@@ -86,7 +88,7 @@ bedrijfsinformatie die niet is meegegeven.`;
 
 export type GenerateUsage = { model: string; tokensIn: number; tokensOut: number };
 
-type Lead = {
+export type Lead = {
   bedrijfsnaam: string;
   sector: string;
   adres: string | null;
@@ -94,12 +96,36 @@ type Lead = {
   research_samenvatting: string | null;
 };
 
-export async function regenerateWithFeedback(
+export type GenerateResult = { bron: SiteBron; paginas: GebouwdePagina[]; usage: GenerateUsage };
+
+/** Review-loop path (spec 3.4): regenerate the whole site with the reviewer's
+ *  findings as extra instructions. */
+export function regenerateWithFeedback(
   lead: Lead,
   stijlvoorkeuren: { regel: string; context: string | null }[],
   sectorKennis: { regel: string }[],
   feedback: string,
-): Promise<{ bron: SiteBron; paginas: GebouwdePagina[]; usage: GenerateUsage }> {
+): Promise<GenerateResult> {
+  return genereerSite(
+    lead,
+    stijlvoorkeuren,
+    sectorKennis,
+    `Dit is een herziening na review-feedback (spec 3.4) — verwerk expliciet:\n${feedback}`,
+  );
+}
+
+/**
+ * The generation step itself (spec 3.3). Lives here rather than in the
+ * `generatie` Edge Function because a real multi-page site takes minutes of
+ * model output and an Edge Function invocation is capped well below that —
+ * see generate-job.ts.
+ */
+export async function genereerSite(
+  lead: Lead,
+  stijlvoorkeuren: { regel: string; context: string | null }[],
+  sectorKennis: { regel: string }[],
+  extraInstructies: string | null,
+): Promise<GenerateResult> {
   const client = createAnthropicClient();
 
   const userMessage = [
@@ -117,35 +143,55 @@ export async function regenerateWithFeedback(
     `Sectorkennis (${lead.sector}):\n${
       sectorKennis.length ? sectorKennis.map((r) => `- ${r.regel}`).join("\n") : "Geen sectorkennis geregistreerd."
     }`,
-    `Dit is een herziening na review-feedback (spec 3.4) — verwerk expliciet:\n${feedback}`,
+    extraInstructies,
   ]
     .filter(Boolean)
     .join("\n\n");
 
-  const response = await client.messages.create({
-    model: MODEL,
-    // Matches generatie/index.ts — a 4-6 page site truncates well before the
-    // 16000 this replaced, and a truncated answer is rejected by the builder
-    // as a missing page rather than shipping half a site.
-    max_tokens: 48000,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userMessage }],
-  });
+  // Same non-streaming + continuation loop as generatie/index.ts (see the
+  // comment there): a multi-page site doesn't reliably fit in one answer, and
+  // a truncated one is resumed from an assistant prefill rather than raising
+  // max_tokens into streaming-only territory.
+  let verzameld = "";
+  let tokensIn = 0;
+  let tokensOut = 0;
 
-  const textBlocks = response.content.filter((b) => b.type === "text");
-  const lastText = textBlocks[textBlocks.length - 1];
-  if (!lastText || lastText.type !== "text") {
-    throw new Error("Geen antwoord ontvangen van generatie-call.");
-  }
-  if (response.stop_reason === "max_tokens") {
-    throw new Error("Generatie-antwoord is afgekapt op max_tokens — site niet volledig.");
+  for (let poging = 0; poging < 3; poging++) {
+    const response = await client.messages.create({
+      model: MODEL,
+      max_tokens: MAX_OUTPUT_TOKENS,
+      system: SYSTEM_PROMPT,
+      messages: verzameld
+        ? [
+            { role: "user", content: userMessage },
+            { role: "assistant", content: verzameld },
+          ]
+        : [{ role: "user", content: userMessage }],
+    });
+
+    tokensIn += response.usage.input_tokens;
+    tokensOut += response.usage.output_tokens;
+
+    const textBlocks = response.content.filter((b) => b.type === "text");
+    const lastText = textBlocks[textBlocks.length - 1];
+    if (!lastText || lastText.type !== "text") {
+      throw new Error("Geen antwoord ontvangen van generatie-call.");
+    }
+
+    verzameld += lastText.text;
+    if (response.stop_reason !== "max_tokens") break;
+    verzameld = knipNaLaatsteVolledigeSectie(verzameld);
+
+    if (poging === 2) {
+      throw new Error("Generatie bleef afgekapt na 3 pogingen — site niet volledig.");
+    }
   }
 
-  const bron = parseSiteBron(lastText.text);
+  const bron = parseSiteBron(verzameld);
 
   return {
     bron,
     paginas: bouwSite(bron, lead.bedrijfsnaam),
-    usage: { model: MODEL, tokensIn: response.usage.input_tokens, tokensOut: response.usage.output_tokens },
+    usage: { model: MODEL, tokensIn, tokensOut },
   };
 }

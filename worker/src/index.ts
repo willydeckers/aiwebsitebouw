@@ -1,4 +1,5 @@
 import { createWorkerClient } from "./shared/supabase.js";
+import { processGenerateJob } from "./pipeline/generate-job.js";
 import { processReviewJob } from "./pipeline/review-job.js";
 import { processShopifyBuildJob } from "./pipeline/shopify-build-job.js";
 
@@ -15,7 +16,7 @@ async function claimNextJob() {
     .from("jobs")
     .select("id, lead_id, type")
     .eq("status", "wachtrij")
-    .in("type", ["review", "shopify_opbouw"])
+    .in("type", ["generatie", "review", "shopify_opbouw"])
     .order("aangemaakt_op", { ascending: true })
     .limit(1);
 
@@ -33,14 +34,20 @@ async function claimNextJob() {
     .update({ status: "bezig", gestart_op: new Date().toISOString() })
     .eq("id", candidate.id)
     .eq("status", "wachtrij")
-    .select("id, lead_id, type, pogingen")
+    .select("id, lead_id, type, pogingen, payload")
     .maybeSingle();
 
   if (claimError || !claimed) return null;
   return claimed;
 }
 
-async function runJob(job: { id: string; lead_id: string | null; type: string; pogingen: number }) {
+async function runJob(job: {
+  id: string;
+  lead_id: string | null;
+  type: string;
+  pogingen: number;
+  payload: { extraContext?: string } | null;
+}) {
   const timeout = setTimeout(async () => {
     await supabase.from("jobs").update({ status: "timeout" }).eq("id", job.id);
   }, JOB_TIMEOUT_MS);
@@ -50,7 +57,9 @@ async function runJob(job: { id: string; lead_id: string | null; type: string; p
 
     if (!job.lead_id) throw new Error(`Job ${job.id} (${job.type}) heeft geen lead_id.`);
 
-    if (job.type === "review") {
+    if (job.type === "generatie") {
+      await processGenerateJob(supabase, job.id, job.lead_id, job.payload);
+    } else if (job.type === "review") {
       await processReviewJob(supabase, job.id, job.lead_id);
     } else if (job.type === "shopify_opbouw") {
       await processShopifyBuildJob(supabase, job.id, job.lead_id);
@@ -78,5 +87,5 @@ async function pollLoop() {
   }
 }
 
-console.log("Worker gestart — pollt jobs (review, shopify_opbouw) elke 5s.");
+console.log("Worker gestart — pollt jobs (generatie, review, shopify_opbouw) elke 5s.");
 pollLoop();

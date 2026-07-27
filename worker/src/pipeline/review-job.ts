@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { takeScreenshot } from "../shared/screenshot.js";
 import { reviewDemo, type ReviewScreenshot } from "./review.js";
 import { regenerateWithFeedback } from "./generate-demo.js";
+import { uploadSite } from "./generate-job.js";
 import { calculateKostEur } from "../shared/anthropic.js";
 import type { PaginaMeta } from "../shared/site-builder.js";
 
@@ -168,20 +169,7 @@ export async function processReviewJob(supabase: SupabaseClient, jobId: string, 
     // then delete whatever the previous iteration left behind. Deleting
     // last means a crash mid-way leaves a stale extra file rather than a
     // version whose index links to a page that no longer exists.
-    for (const pagina of nieuwePaginas) {
-      const { error: uploadError } = await supabase.storage
-        .from("demos")
-        .upload(`${map}/${pagina.bestand}`, pagina.html, { contentType: "text/html", upsert: true });
-      if (uploadError) throw new Error(`Upload van ${pagina.bestand} mislukt: ${uploadError.message}`);
-    }
-
-    const { error: bronError } = await supabase.storage
-      .from("demos")
-      .upload(`${map}/bron.json`, JSON.stringify(bron, null, 2), {
-        contentType: "application/json",
-        upsert: true,
-      });
-    if (bronError) throw new Error(`Upload van bron.json mislukt: ${bronError.message}`);
+    await uploadSite(supabase, map, nieuwePaginas, bron);
 
     const nieuwManifest: PaginaMeta[] = bron.paginas;
     const { error: manifestError } = await supabase
