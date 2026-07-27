@@ -12,7 +12,34 @@ const SYSTEM_PROMPT = `Je bent de chat-based patch-editor van een web agency das
 Je krijgt één bestaand HTML-bestand (op pad ${VIRTUAL_PATH}) en een gerichte instructie van
 Warre of Garen (bv. "die kleur moet anders"). Dit is GEEN nieuwe generatie: herschrijf niet de
 hele pagina. Gebruik uitsluitend str_replace of insert om precies het gevraagde te wijzigen en
-niets anders. Rond af zodra de instructie is doorgevoerd.`;
+niets anders. Rond af zodra de instructie is doorgevoerd.
+
+Nadat je de wijziging hebt doorgevoerd: overweeg of dit een ALGEMENE, klant-onafhankelijke
+stijl- of structuurvoorkeur is die voortaan voor ELKE toekomstige klant zou moeten gelden (bv.
+"gebruik altijd afgeronde knoppen", "voorzie altijd een scroll-animatie bij ankerlinks in de
+navigatie"). Zo ja: roep onthoud_als_algemene_stijlvoorkeur aan met een generieke, klant-
+onafhankelijke formulering (geen bedrijfsnamen, URL's of andere klantspecifieke details). Is de
+instructie net specifiek voor déze klant (verwijst naar hun eigen naam, sector, website of
+content) — roep dit dan NIET aan; zulke instructies horen niet thuis in de stijl van andere
+klanten.`;
+
+const REMEMBER_TOOL: Anthropic.Tool = {
+  name: "onthoud_als_algemene_stijlvoorkeur",
+  description:
+    "Onthoud de zojuist doorgevoerde wijziging als een algemene, klant-onafhankelijke stijl- of " +
+    "structuurvoorkeur voor toekomstige generaties. Alleen aanroepen voor regels die voor élke " +
+    "klant zouden moeten gelden — nooit voor iets specifiek aan deze klant.",
+  input_schema: {
+    type: "object",
+    properties: {
+      regel: {
+        type: "string",
+        description: "De regel, generiek en klant-onafhankelijk geformuleerd (geen bedrijfsnamen, URL's of klantspecifieke details).",
+      },
+    },
+    required: ["regel"],
+  },
+};
 
 function applyCommand(file: string, input: Record<string, unknown>): string {
   const command = input.command as string;
@@ -74,6 +101,7 @@ Deno.serve(async (req) => {
     let tokensOut = 0;
     let editApplied = false;
     let antwoord = "";
+    let algemeneRegel: string | null = null;
 
     const client = createAnthropicClient();
     const messages: Anthropic.MessageParam[] = [
@@ -85,7 +113,7 @@ Deno.serve(async (req) => {
         model: MODEL,
         max_tokens: 8000,
         system: SYSTEM_PROMPT,
-        tools: [{ type: "text_editor_20250728", name: "str_replace_based_edit_tool" }],
+        tools: [{ type: "text_editor_20250728", name: "str_replace_based_edit_tool" }, REMEMBER_TOOL],
         messages,
       });
 
@@ -106,6 +134,15 @@ Deno.serve(async (req) => {
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
       for (const block of response.content) {
         if (block.type !== "tool_use") continue;
+        if (block.name === "onthoud_als_algemene_stijlvoorkeur") {
+          algemeneRegel = (block.input as { regel: string }).regel;
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: block.id,
+            content: "OK, onthouden als algemene stijlvoorkeur.",
+          });
+          continue;
+        }
         const input = block.input as Record<string, unknown>;
         try {
           const output = applyCommand(file, input);
@@ -166,13 +203,21 @@ Deno.serve(async (req) => {
         .eq("id", siteVersion.id);
 
       // Persist the correction for future generations (spec section 3.5) —
-      // only when something was actually changed; a clarifying question
-      // isn't a style rule worth remembering.
-      await supabase.from("stijlvoorkeuren").insert({
-        regel: instruction,
-        context: `Chat-edit op lead ${leadId}`,
-        toegevoegd_door: user.email,
-      });
+      // but only the generalized rule the model explicitly flagged as
+      // client-independent, not the raw instruction. Blindly persisting
+      // every applied instruction verbatim leaked client-specific content
+      // (e.g. "copy the services from <this client's own website>") into
+      // every OTHER client's generation, since generatie applies every row
+      // in this table to every lead unconditionally — caught live when a
+      // flower shop's generated site started referencing a landscaping
+      // company's reference site.
+      if (algemeneRegel) {
+        await supabase.from("stijlvoorkeuren").insert({
+          regel: algemeneRegel,
+          context: `Chat-edit op lead ${leadId} (gegeneraliseerd)`,
+          toegevoegd_door: user.email,
+        });
+      }
     }
 
     await supabase.from("review_log").insert({
