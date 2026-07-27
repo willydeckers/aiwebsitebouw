@@ -28,18 +28,18 @@ export async function processReviewJob(supabase: SupabaseClient, jobId: string, 
   const { data: stijlvoorkeuren } = await supabase.from("stijlvoorkeuren").select("regel, context");
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-    // Private bucket (spec section 2 requires no raw Storage URL ever
-    // reaches a lead) — a short-lived signed URL is fine for the worker's
-    // own screenshot, and doesn't require the public hosting layer (task
-    // "Build public demo-hosting + tracking Edge Function") to exist yet.
-    const { data: signed, error: signError } = await supabase.storage
+    // Fetch the HTML bytes directly rather than screenshotting a Storage
+    // URL — see screenshot.ts for why (Supabase Storage never serves
+    // stored objects as renderable text/html, signed or not).
+    const { data: fileBlob, error: downloadError } = await supabase.storage
       .from("demos")
-      .createSignedUrl(siteVersion.content_referentie, 60);
-    if (signError || !signed) throw new Error(`Kon signed URL niet maken: ${signError?.message}`);
+      .download(siteVersion.content_referentie);
+    if (downloadError || !fileBlob) throw new Error(`Kon demo-HTML niet downloaden: ${downloadError?.message}`);
+    const currentHtml = await fileBlob.text();
 
     const [desktopShot, mobielShot] = await Promise.all([
-      takeScreenshot(signed.signedUrl, { width: 1280, height: 800 }),
-      takeScreenshot(signed.signedUrl, { width: 375, height: 812 }),
+      takeScreenshot(currentHtml, { width: 1280, height: 800 }),
+      takeScreenshot(currentHtml, { width: 375, height: 812 }),
     ]);
 
     const { result, usage } = await reviewDemo(

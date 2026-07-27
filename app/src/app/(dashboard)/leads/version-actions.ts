@@ -1,15 +1,17 @@
 import { createClient } from "@/lib/supabase/client";
 import type { SiteVersion } from "@/lib/types";
 
-// Bucket is private (spec section 2 — no raw Storage URL ever reaches a
-// lead), but an authenticated app session can read it directly under the
-// "authenticated full access" storage policy, so a short-lived signed URL
-// is enough to preview an older, non-actief version inline.
-export async function fetchSignedDemoUrl(path: string): Promise<string | null> {
+// Fetches the HTML itself rather than a Storage URL: Supabase Storage
+// always serves stored objects as `text/plain` with a locked-down sandbox
+// CSP (a deliberate anti-XSS measure — it never serves arbitrary stored
+// content as live, renderable text/html, signed URL or not). Navigating a
+// preview iframe/window there shows raw source, not the rendered page. The
+// caller loads this string directly (`srcdoc` / `document.write`) instead.
+export async function fetchDemoHtml(path: string): Promise<string | null> {
   const supabase = createClient();
-  const { data, error } = await supabase.storage.from("demos").createSignedUrl(path, 60);
+  const { data, error } = await supabase.storage.from("demos").download(path);
   if (error || !data) return null;
-  return data.signedUrl;
+  return await data.text();
 }
 
 // Spec 3.8: "Maak deze actief publiceert zonder de live site te verstoren."

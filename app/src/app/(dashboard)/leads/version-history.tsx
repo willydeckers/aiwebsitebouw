@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import type { SiteVersion, SiteVersionStatus } from "@/lib/types";
-import { activateVersion, fetchSignedDemoUrl, revertToVersion } from "./version-actions";
+import { activateVersion, fetchDemoHtml, revertToVersion } from "./version-actions";
 
 const STATUS_LABELS: Record<SiteVersionStatus, string> = {
   concept: "Concept",
@@ -19,30 +19,48 @@ export function VersionHistory({
   versions: SiteVersion[];
   onChanged: () => void;
 }) {
-  const [previewFor, setPreviewFor] = useState<string | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  // Opens a real popup window rather than expanding inline — a full window
+  // gives a much better sense of "this is what the lead will actually see"
+  // than a cramped iframe in the panel, and it's reused per version (same
+  // window name) so repeat clicks don't pile up new windows.
+  //
+  // The window has to open synchronously, in the same tick as the click —
+  // browsers only allow window.open() without being treated (and blocked)
+  // as an unsolicited popup when it's directly inside a user-gesture
+  // handler. Opening it first and writing the fetched HTML into it once
+  // that resolves keeps it inside that gesture; opening it only after the
+  // `await fetchDemoHtml(...)` (i.e. once the fetch resolves) is what
+  // browsers block.
   function handlePreview(version: SiteVersion) {
     setError(null);
-    if (previewFor === version.id) {
-      setPreviewFor(null);
-      setPreviewUrl(null);
-      return;
-    }
     if (!version.content_referentie) {
       setError("Deze versie heeft geen opgeslagen inhoud.");
       return;
     }
+    const popup = window.open("", `demo-preview-${version.id}`, "width=1280,height=900");
+    if (!popup) {
+      setError("Kon geen popup-venster openen — controleer of je browser popups blokkeert voor deze site.");
+      return;
+    }
+    popup.document.title = `Versie ${version.versienummer} — laden...`;
+    popup.document.body.innerHTML =
+      "<p style='font-family:sans-serif;padding:2rem;color:#64748b'>Laden...</p>";
+
     startTransition(async () => {
-      const url = await fetchSignedDemoUrl(version.content_referentie!);
-      if (!url) {
+      const html = await fetchDemoHtml(version.content_referentie!);
+      if (!html) {
         setError("Kon deze versie niet ophalen.");
+        popup.close();
         return;
       }
-      setPreviewFor(version.id);
-      setPreviewUrl(url);
+      popup.document.open();
+      popup.document.write(html);
+      popup.document.close();
+      popup.document.title = `Versie ${version.versienummer} — preview`;
+      popup.focus();
     });
   }
 
@@ -83,7 +101,7 @@ export function VersionHistory({
                   disabled={pending}
                   className="text-blue-600 hover:underline disabled:opacity-50"
                 >
-                  {previewFor === version.id ? "Verberg" : "Bekijk"}
+                  Bekijk
                 </button>
                 {version.status === "afgerond" ? (
                   <button
@@ -107,13 +125,6 @@ export function VersionHistory({
                 ) : null}
               </div>
             </div>
-            {previewFor === version.id && previewUrl ? (
-              <iframe
-                src={previewUrl}
-                title={`Versie ${version.versienummer}`}
-                className="mt-2 h-96 w-full rounded-xl border border-blue-100 bg-white"
-              />
-            ) : null}
           </li>
         ))}
       </ul>
