@@ -71,6 +71,8 @@ deployment, live-credential verification, and a couple of deliberately-external 
     `npx tsx --env-file=.env src/index.ts` from `worker/`. Get the service-role key via
     `supabase projects api-keys --project-ref <ref>`, not from `app/.env.local` (that file's
     copy of it was left empty).
+  - **Since 2026-07-27 the worker also runs the generatie-stap**, not just review/Shopify —
+    hosting it is no longer optional for a working pipeline. See that session's notes below.
 - **KBO Open Data import**: still not started for real. Two rows were seeded directly into
   `kbo_ondernemingen` on 2026-07-24 purely as sourcing-run test fixtures (fictional
   florists in Peer/Hechtel-Eksel) — that's test data exercising the pipeline, not a step
@@ -229,6 +231,62 @@ The worker's Chromium instability note above turned out to have a second, unrela
 round: a stale worker process from earlier in a long session can keep running old code and race
 new ones for jobs — always confirm which PID is actually live (`Get-CimInstance Win32_Process`)
 after restarting it, not just that *a* `node` process exists.
+
+## 2026-07-27 — meerpagina-generatie (branch `feature/multipage-generator`)
+
+De generator maakt nu een echte samenhangende site van 4-6 pagina's in plaats van één
+HTML-bestand. Dit wijkt bewust af van spec 3.3's letterlijke "één AI-call, volledig
+HTML-bestand" — die zin is verouderd t.o.v. wat de app moet opleveren.
+
+- **Deterministische assemblage** (`supabase/functions/_shared/site-builder.ts`, gedupliceerd
+  naar `worker/src/shared/site-builder.ts` zoals nace.ts/image-bank.ts al deden). Het model
+  levert de *onderdelen* in een `===SECTIE===`-formaat (META-paginalijst, HEAD, NAV, FOOTER,
+  één body per pagina); de code zet daar de losse HTML-bestanden uit samen. Daardoor zijn
+  nav en footer op elke pagina identiek *by construction*, wordt de actieve pagina in code
+  gemarkeerd, en wordt elke interne href tegen de echte paginalijst genormaliseerd — een
+  onoplosbare link laat de build falen in plaats van een dode link in een demo te sturen.
+  `data-nav-actief` op een link is tegelijk hoe de code herkent wat een menu-item is (niet
+  het logo, niet een CTA-knop). Regressietest: `cd worker && npm run test:site-builder`.
+- **Opslag per versie is een map**: `{leadId}/{versienummer}/index.html` + de andere pagina's
+  + `bron.json` (de geparste onderdelen, zodat chat-edit de nav/footer één keer patcht en de
+  code ze op alle pagina's opnieuw toepast). `content_referentie` wijst naar `index.html`;
+  de nieuwe kolom `site_versions.paginas` is het manifest. `paginas IS NULL` = oude
+  één-bestand-versie, overal expliciet afgehandeld.
+- **`track-and-serve` serveert `/{leadId}/{bestand}.html`** en redirect `/{leadId}` naar
+  `/{leadId}/` — de gegenereerde pagina's linken relatief naar elkaar, dus de browser moet
+  de versiemap als directory zien. Enkel bestanden die in `paginas` staan zijn opvraagbaar.
+- **`cleanup-storage` loopt nu recursief** — Storage heeft geen echte mappen, dus de oude
+  één-niveau-`list()` zag een synthetische map-entry en verwijderde daar niets van.
+- **De generatie-stap is verhuisd naar de worker.** Een echte meerpagina-site is enkele
+  minuten modeloutput; een Edge Function-invocatie op dit project wordt daar ruim voor
+  afgebroken — zowel streamend als niet-streamend exact op ~150s met `WORKER_RESOURCE_LIMIT`
+  (platform-wallclock, niet weg te tunen). De run die wél slaagde duurde ~3 minuten. De
+  Edge Function `generatie` zet nu enkel een job in de wachtrij (nieuwe kolom `jobs.payload`
+  draagt de "extra instructies"-tekst mee); de worker verwerkt hem, net als `review`.
+  **Gevolg: de worker moet draaien om te kunnen genereren** — voorheen gold dat enkel voor
+  review en Shopify-builds. Aanroep vanuit de app (`invoke("generatie", ...)`) is ongewijzigd.
+- **De review-loop bekijkt elke pagina** (desktop-screenshot per pagina + mobiel van de home,
+  max 5 pagina's — die beelden gaan allemaal in één call en moeten binnen de €5/lead blijven).
+- **Shopify blijft een apart pad, bewust**: Shopify heeft zijn eigen paginasysteem (Page-
+  records, een Menu dat het thema rendert, Dawn zet zelf al `aria-current`). Zie de kop van
+  `worker/src/pipeline/shopify-build-job.ts` voor hoe een `SiteBron` daar 1-op-1 op zou
+  mappen als het ooit gebouwd wordt — dat porten van demo-inhoud naar een nieuwe store
+  bestaat nog voor geen enkel site-type.
+
+**Live testrun (Tuinbouw Hendrix, lead `36ff0584-aa25-4be2-86f7-1afac318ed52`).** Deze lead
+bestond niet meer in de live DB en is opnieuw aangemaakt. `research`'s `web_fetch` raakte
+tuinen-hendrix.be niet (wél gewoon bereikbaar met curl), dus de paginatekst is er als
+briefing in `leads.notities` ingezet — research vertrouwt notities expliciet. Resultaat:
+6 pagina's (home, diensten, zwemvijvers, realisaties, over-ons, contact), 0 dode links,
+nav structureel identiek en footer letterlijk identiek op alle pagina's, per pagina exact de
+juiste actieve links (2 per pagina: desktop- én mobielmenu), elke pagina vanaf elke pagina
+bereikbaar, echte contactgegevens erin. Geverifieerd door de bestanden lokaal te serveren en
+elke interne link met een HEAD-request te volgen, plus screenshots via de worker-Playwright-
+route. De in-app preview navigeert aantoonbaar tussen pagina's (klik in de nav van het
+iframe → juiste pagina, titel en actieve staat). Niet verifieerbaar hier: de `#sectie`-sprong
+na een cross-page-link (deze testbrowser klemt élke programmatische scroll op 0) en de
+review-loop op een meerpagina-site (niet live gedraaid — kost een volledige review + evt.
+hergeneraties).
 
 ## Known gaps (deliberate, not oversights)
 
