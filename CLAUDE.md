@@ -288,6 +288,66 @@ na een cross-page-link (deze testbrowser klemt élke programmatische scroll op 0
 review-loop op een meerpagina-site (niet live gedraaid — kost een volledige review + evt.
 hergeneraties).
 
+## 2026-07-27 — de uitgestelde features (zelfde branch)
+
+Alles wat in de meerpagina-sessie expliciet was uitgesteld, is nu gebouwd. Rode draad, zoals
+bij de site-builder: het model schrijft **inhoud**, de code garandeert **gedrag**.
+
+- **Widget-runtime** (`_shared/site-widgets.ts`, gedupliceerd naar `worker/src/shared/`).
+  Eén vaste, geteste runtime die vlak voor `</body>` wordt ingespoten, aangestuurd met
+  `data-*`-attributen: mobiel menu, FAQ-accordion (native `<details>`, werkt zonder JS), tabs
+  (rollen, roving tabindex, pijltjestoetsen), quiz, click-to-load video, formulier, reviews.
+  **Eigen `<script>` en inline handlers worden geweigerd**; enige uitzondering is een
+  `tailwind.config`-toewijzing in de HEAD. De markup-contracten worden gevalideerd in de
+  build — een tabs-blok waarvan de knoppen naar niet-bestaande panelen wijzen faalt nu, in
+  plaats van als rij dode knoppen te renderen. Video's laden pas iets van YouTube/Vimeo ná
+  een klik (GDPR, spec 7), en video-ID's worden op vorm gecontroleerd — een verzonnen ID is
+  dezelfde fout als de verzonnen Unsplash-ID's van 26/07.
+- **Hiërarchie**: een pagina kan `"ouder"` hebben, exact één niveau diep (dieper opdelen doe
+  je met tabs binnen een pagina). Een hoofdpagina moet in de nav staan, een subpagina mag ook
+  enkel vanaf haar ouderpagina bereikbaar zijn. De nav markeert de ouder met
+  `aria-current="true"` als een subpagina open staat. **Het kruimelpad wordt door de code
+  gebouwd** (met schema.org BreadcrumbList), niet door het model.
+- **Formulieren/reviews/downloads/afgeschermde pagina's** draaien op de bestaande
+  hostinglaag (`track-and-serve`, service-role) met drie nieuwe tabellen
+  (`site_inzendingen`, `site_bestanden`, `site_toegang`). Honeypot + 5 inzendingen/uur per
+  (gehashte) afzender. Een review is pas publiek ná goedkeuring in de app. Downloads worden
+  als `attachment` + `nosniff` geserveerd en enkel als ze in `site_bestanden` staan; de
+  generator krijgt de bestandslijst als prompt-invoer én als harde build-check.
+- **Gating is server-side**: een pagina met `toegang: "beveiligd"` wordt niet uit Storage
+  gelezen zonder geldige cookie. Het is één gedeelde code per site, **geen accountsysteem** —
+  er is geen gebruikersmodel in dit project en dat verzinnen zou een veiligheidsbelofte doen
+  die deze laag niet kan houden. De cookie is afgeleid van de code-hash, dus een nieuwe code
+  maakt alle uitgedeelde cookies ongeldig. `index.html` kan nooit beveiligd zijn (daar komt
+  de e-maillink op uit).
+- **Beheer-UI**: nieuw uitklapbaar blok "Site-interactie" in het lead-paneel (inzendingen
+  lezen/goedkeuren, bestanden uploaden, toegangscode instellen).
+
+**Twee Shopify-mutations bleken niet te bestaan** (gevalideerd tegen de echte schema's, niet
+tegen documentatie):
+- `developmentStoreCreate` (Partner API) — bestaat niet, en de Partner API heeft überhaupt
+  maar twee mutations (`appCreditCreate`, `appSubscriptionCancel`). **Spec 3.8's "development
+  store via de Partner API" is niet haalbaar.** De store wordt nu manueel aangemaakt in het
+  Partner Dashboard; bij het omzetten naar Shopify-klant vul je het `myshopify.com`-domein in
+  en doet de `shopify_opbouw`-job de rest.
+- `staffMemberInvite` (Admin API) — bestaat niet; `StaffMember` is read-only en vereist zelfs
+  om te lezen `read_users` (enkel Plus/Advanced). **Spec sectie 4 is niet automatiseerbaar.**
+  De functie geeft nu de stappen terug voor de Shopify-beheerder en noteert pas "Uitgenodigd"
+  na een expliciete bevestiging.
+
+**Geverifieerd**: 39 unit-tests (`cd worker && npm test`), het gedrag van elke widget in een
+echte browser (`scripts/demo-widgets.ts`), en de publieke endpoints live tegen de gedeployde
+`track-and-serve` — honeypot, rate limit, review-moderatie, downloads, en het volledige
+gating-verhaal (401 zonder code, geen pagina-inhoud in het codescherm, cookie na juiste code,
+cookie vervalt na rotatie).
+
+**Niet geverifieerd**: het nieuwe "Site-interactie"-paneel is niet in een draaiende browser
+aangeklikt — de testbrowser had geen sessie en het injecteren van een auth-token werd (terecht)
+geblokkeerd. Typecheck en lint zijn schoon; de klikpaden zelf moet je één keer zelf nalopen.
+Ook niet gedaan: een echte e-commerce end-to-end-test (vereist een development store mét
+Admin-token, die bestaat nog niet) en een generatie die de nieuwe widgets/hiërarchie effectief
+gebruikt — de bestaande Hendrix-demo is van vóór deze features.
+
 ## Known gaps (deliberate, not oversights)
 
 - **KBO Open Data import script doesn't exist.** `sourcing-run` reads from a
@@ -295,10 +355,11 @@ hergeneraties).
   but nothing populates that table yet — KBO publishes a downloadable file periodically,
   not a live API, so this needs a one-off (then recurring) import job once the user has
   downloaded a file. Ask before building this.
-- **Shopify Partner/Admin API calls are unverified against a live account.** The mutation
-  shapes in `worker/src/shared/shopify-partner-client.ts` and
-  `supabase/functions/_shared/shopify.ts` are written from documentation, not tested live.
-  Test with a real Partner account before using with an actual client.
+- **Shopify: twee mutations bleken niet te bestaan en zijn vervangen** (zie de sessie van
+  2026-07-27 hierboven). Wat nog open staat: er is nog geen echte development store mét
+  Admin-token, dus `chat-edit-shopify` (generieke GraphQL-passthrough, nooit verzonnen) en de
+  rate limiter zijn nog niet tegen een levende winkel gedraaid. Een e-commerce
+  end-to-end-test vraagt eerst zo'n store.
 - **No E2E test exists yet.** Playwright is a dependency in both `app/` and `worker/`
   already; `app/e2e/critical-path.spec.ts` (lead created → job triggered → Realtime status
   change) still needs writing, and needs a real test Supabase project to run against.
