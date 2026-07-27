@@ -86,6 +86,8 @@ export type PaginaMeta = {
   bestand: string;
   titel: string;
   nav_label: string;
+  /** Parent page's `bestand` for a subtopic; null/absent for a top-level page. */
+  ouder?: string | null;
 };
 
 export type SiteVersion = {

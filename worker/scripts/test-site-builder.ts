@@ -199,4 +199,119 @@ test("markeerActievePagina blijft idempotent bij herhaald toepassen", () => {
   assert.equal(tweemaal.gemarkeerd, 1);
 });
 
+// ── Hiërarchie: hoofdstuk -> subonderwerp ────────────────────────────────
+
+const GENEST = `===META===
+{"paginas":[
+  {"bestand":"index.html","titel":"Home","nav_label":"Home"},
+  {"bestand":"diensten.html","titel":"Diensten","nav_label":"Diensten"},
+  {"bestand":"tuinaanleg.html","titel":"Tuinaanleg","nav_label":"Tuinaanleg","ouder":"diensten.html"},
+  {"bestand":"onderhoud.html","titel":"Onderhoud","nav_label":"Onderhoud","ouder":"diensten.html"}
+]}
+===HEAD===
+<style>body{font-family:system-ui}</style>
+===NAV===
+<header>
+<nav>
+<a href="index.html" class="c" data-nav-actief="actief">Home</a>
+<a href="diensten.html" class="c" data-nav-actief="actief">Diensten</a>
+</nav>
+</header>
+===FOOTER===
+<footer><a href="index.html">Home</a></footer>
+===PAGINA:index.html===
+<main><h1>Welkom</h1></main>
+===PAGINA:diensten.html===
+<main><h1>Diensten</h1><a href="tuinaanleg.html">Tuinaanleg</a><a href="onderhoud.html">Onderhoud</a></main>
+===PAGINA:tuinaanleg.html===
+<main><h1>Tuinaanleg</h1></main>
+===PAGINA:onderhoud.html===
+<main><h1>Onderhoud</h1></main>
+`;
+
+test("bouwt een subpagina die enkel via haar ouderpagina bereikbaar is", () => {
+  const paginas = bouwSite(parseSiteBron(GENEST), "Test");
+  assert.equal(paginas.length, 4);
+  assert.ok(paginas.some((p) => p.bestand === "tuinaanleg.html"));
+});
+
+test("markeert de ouder in de nav als actieve sectie op een subpagina", () => {
+  const sub = bouwSite(parseSiteBron(GENEST), "Test").find((p) => p.bestand === "tuinaanleg.html")!;
+  const nav = sub.html.split("<header>")[1].split("</header>")[0];
+  assert.ok(nav.includes('aria-current="true"'), "ouder niet gemarkeerd als sectie");
+  assert.ok(!nav.includes('aria-current="page"'), "nav mag geen page-markering hebben voor een pagina die er niet in staat");
+  const ouderTag = nav.match(/<a[^>]*aria-current="true"[^>]*>/)![0];
+  assert.ok(ouderTag.includes('href="diensten.html"'), ouderTag);
+  // De ouder krijgt niet de volle actieve styling van de modelklassen: het
+  // class-attribuut blijft ongewijzigd (data-nav-actief zelf staat er nog wel).
+  assert.equal(ouderTag.match(/\bclass="([^"]*)"/)![1], "c", ouderTag);
+});
+
+test("zet een kruimelpad op subpagina's, niet op de home", () => {
+  const paginas = bouwSite(parseSiteBron(GENEST), "Test");
+  const home = paginas.find((p) => p.bestand === "index.html")!;
+  const sub = paginas.find((p) => p.bestand === "tuinaanleg.html")!;
+  const tussen = paginas.find((p) => p.bestand === "diensten.html")!;
+
+  // Let op: de ingespoten stylesheet noemt [data-kruimelpad] op élke pagina —
+  // zoek dus naar het element, niet naar de string.
+  assert.ok(!home.html.includes("<nav data-kruimelpad"), "home hoort geen kruimelpad te hebben");
+  assert.ok(tussen.html.includes("<nav data-kruimelpad"));
+  assert.equal((tussen.html.match(/itemprop="name"/g) ?? []).length, 2, "Home / Diensten");
+
+  const pad = sub.html.split("<nav data-kruimelpad")[1].split("</nav>")[0];
+  assert.ok(pad.includes(">Home<"), pad);
+  assert.ok(pad.includes(">Diensten<"), pad);
+  assert.ok(pad.includes(">Tuinaanleg<"), pad);
+  assert.ok(pad.includes('href="diensten.html"'), "ouder in het kruimelpad moet klikbaar zijn");
+  assert.ok(pad.includes('BreadcrumbList'), "schema.org-markup ontbreekt");
+});
+
+test("weigert een subpagina die nergens vandaan bereikbaar is", () => {
+  const wees = GENEST.replace('<a href="tuinaanleg.html">Tuinaanleg</a>', "");
+  assert.throws(() => bouwSite(parseSiteBron(wees), "Test"), /tuinaanleg\.html/);
+});
+
+test("weigert drie niveaus diep", () => {
+  const teDiep = GENEST.replace(
+    '{"bestand":"onderhoud.html","titel":"Onderhoud","nav_label":"Onderhoud","ouder":"diensten.html"}',
+    '{"bestand":"onderhoud.html","titel":"Onderhoud","nav_label":"Onderhoud","ouder":"tuinaanleg.html"}',
+  );
+  assert.throws(() => parseSiteBron(teDiep), /drie niveaus diep/);
+});
+
+test("weigert een ouder die niet bestaat en een pagina die haar eigen ouder is", () => {
+  const geenOuder = GENEST.replace('"ouder":"diensten.html"', '"ouder":"bestaat-niet.html"');
+  assert.throws(() => parseSiteBron(geenOuder), /bestaat-niet\.html/);
+
+  const zichzelf = GENEST.replace(
+    '{"bestand":"tuinaanleg.html","titel":"Tuinaanleg","nav_label":"Tuinaanleg","ouder":"diensten.html"}',
+    '{"bestand":"tuinaanleg.html","titel":"Tuinaanleg","nav_label":"Tuinaanleg","ouder":"tuinaanleg.html"}',
+  );
+  assert.throws(() => parseSiteBron(zichzelf), /zichzelf/);
+});
+
+test("weigert een ouder op index.html", () => {
+  const homeOuder = GENEST.replace(
+    '{"bestand":"index.html","titel":"Home","nav_label":"Home"}',
+    '{"bestand":"index.html","titel":"Home","nav_label":"Home","ouder":"diensten.html"}',
+  );
+  assert.throws(() => parseSiteBron(homeOuder), /startpagina/);
+});
+
+test("controleert downloadlinks tegen de geüploade bestanden", () => {
+  const metDownload = GENEST.replace(
+    "<main><h1>Tuinaanleg</h1></main>",
+    '<main><h1>Tuinaanleg</h1><div data-widget="downloads"><a href="bestanden/prijslijst.pdf" download>Prijslijst</a></div></main>',
+  );
+  // Zonder lijst: niet gecontroleerd (de aanroeper kent de bestanden nog niet).
+  assert.equal(bouwSite(parseSiteBron(metDownload), "Test").length, 4);
+  // Met lijst: bekend bestand mag, onbekend niet.
+  assert.equal(bouwSite(parseSiteBron(metDownload), "Test", { bestanden: ["prijslijst.pdf"] }).length, 4);
+  assert.throws(
+    () => bouwSite(parseSiteBron(metDownload), "Test", { bestanden: ["iets-anders.pdf"] }),
+    /prijslijst\.pdf/,
+  );
+});
+
 console.log(`\n${geslaagd} tests geslaagd${process.exitCode ? " (met fouten)" : ""}`);

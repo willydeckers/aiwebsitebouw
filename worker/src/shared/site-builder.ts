@@ -31,6 +31,12 @@ export type PaginaMeta = {
   titel: string;
   /** Label shown in the shared navigation. */
   nav_label: string;
+  /**
+   * Parent page's `bestand`, for a subtopic under a chapter. Absent/null for a
+   * top-level page. Exactly one level of nesting is allowed — see
+   * controleerHierarchie for why.
+   */
+  ouder?: string | null;
 };
 
 /** The model's output, parsed. This is what gets stored as `bron.json` next to
@@ -119,8 +125,15 @@ export function parseSiteBron(raw: string): SiteBron {
         `Ongeldige bestandsnaam "${pagina.bestand}" — enkel kleine letters, cijfers en koppeltekens, eindigend op .html.`,
       );
     }
-    return { bestand: pagina.bestand, titel: pagina.titel, nav_label: pagina.nav_label };
+    return {
+      bestand: pagina.bestand,
+      titel: pagina.titel,
+      nav_label: pagina.nav_label,
+      ouder: pagina.ouder ?? null,
+    };
   });
+
+  controleerHierarchie(paginas);
 
   const nav = inhoud("NAV");
   const footer = inhoud("FOOTER");
@@ -172,6 +185,49 @@ export function knipNaLaatsteVolledigeSectie(tekst: string): string {
     }
   }
   return tekst.trimEnd();
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 1b. Page hierarchy (hoofdstuk -> subonderwerp)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Validates the parent/child tree. Exactly one level of nesting is allowed:
+ * that's what a navigation submenu and a breadcrumb can represent honestly,
+ * and it's the depth the content actually has (chapter -> subtopic, with tabs
+ * handling variation *within* a subtopic). Allowing arbitrary depth would mean
+ * a nav no visitor can operate and a builder that has to invent tree UI.
+ */
+export function controleerHierarchie(paginas: PaginaMeta[]): void {
+  const perBestand = new Map(paginas.map((p) => [p.bestand, p]));
+
+  for (const pagina of paginas) {
+    if (!pagina.ouder) continue;
+
+    if (pagina.bestand === "index.html") {
+      throw new SiteBuildError("index.html is de startpagina en kan geen ouder hebben.");
+    }
+    if (pagina.ouder === pagina.bestand) {
+      throw new SiteBuildError(`${pagina.bestand} verwijst naar zichzelf als ouder.`);
+    }
+    const ouder = perBestand.get(pagina.ouder);
+    if (!ouder) {
+      throw new SiteBuildError(
+        `${pagina.bestand} heeft ouder "${pagina.ouder}", maar die pagina staat niet in de paginalijst.`,
+      );
+    }
+    if (ouder.ouder) {
+      throw new SiteBuildError(
+        `${pagina.bestand} zit drie niveaus diep (${ouder.ouder} > ${ouder.bestand} > ${pagina.bestand}) — ` +
+          `maximaal één niveau subpagina's is toegestaan; gebruik tabs binnen een pagina voor diepere opdeling.`,
+      );
+    }
+  }
+}
+
+/** Direct children of a page, in the order they appear in the page list. */
+export function kinderenVan(paginas: PaginaMeta[], bestand: string): PaginaMeta[] {
+  return paginas.filter((p) => p.ouder === bestand);
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -273,6 +329,12 @@ const ACTIEF_STIJL = `<style>
     text-decoration-thickness: 2px;
     text-underline-offset: 6px;
   }
+  /* Ancestor of the current page (the chapter a subtopic sits under): shown
+     as the active section, but deliberately weaker than the page itself. */
+  nav [aria-current="true"], header [aria-current="true"] { font-weight: 600; }
+  [data-kruimelpad] { font-size: 0.875rem; }
+  [data-kruimelpad] ol { display: flex; flex-wrap: wrap; gap: 0.5rem; list-style: none; margin: 0; padding: 0; }
+  [data-kruimelpad] li + li::before { content: "/"; margin-right: 0.5rem; opacity: 0.5; }
 </style>`;
 
 /**
@@ -291,12 +353,21 @@ const ACTIEF_STIJL = `<style>
  * More than one hit is normal and correct: a header with a desktop menu and a
  * separate mobile menu has two links per page, and both are the current page.
  */
-export function markeerActievePagina(nav: string, huidigBestand: string): { html: string; gemarkeerd: number } {
+export function markeerActievePagina(
+  nav: string,
+  huidigBestand: string,
+  ouderBestand?: string | null,
+): { html: string; gemarkeerd: number } {
   let gemarkeerd = 0;
   const html = nav.replace(ANKER_PATROON, (tag) => {
     const href = hrefVan(tag);
     if (href === null) return tag;
-    if ((href.split("#")[0] || "index.html") !== huidigBestand) return tag;
+    const doel = href.split("#")[0] || "index.html";
+    // A subtopic often isn't a nav item itself — its chapter is. Marking the
+    // chapter tells the visitor where they are instead of leaving the whole
+    // menu looking inactive.
+    const soort = doel === huidigBestand ? "page" : ouderBestand && doel === ouderBestand ? "true" : null;
+    if (!soort) return tag;
 
     const actiefMatch = ACTIEF_ATTR_PATROON.exec(tag);
     if (!actiefMatch) return tag;
@@ -306,7 +377,9 @@ export function markeerActievePagina(nav: string, huidigBestand: string): { html
     }
 
     gemarkeerd++;
-    const extraKlassen = (actiefMatch[2] ?? actiefMatch[3] ?? "").trim();
+    // Only the page itself takes the model's active styling; the ancestor
+    // gets the marker alone, so a chapter never looks like the open page.
+    const extraKlassen = soort === "page" ? (actiefMatch[2] ?? actiefMatch[3] ?? "").trim() : "";
 
     let resultaat = tag;
     if (extraKlassen) {
@@ -319,7 +392,7 @@ export function markeerActievePagina(nav: string, huidigBestand: string): { html
         resultaat = resultaat.replace(/^<a\b/i, `<a class="${extraKlassen}"`);
       }
     }
-    return resultaat.replace(/^<a\b/i, '<a aria-current="page"');
+    return resultaat.replace(/^<a\b/i, `<a aria-current="${soort}"`);
   });
 
   return { html, gemarkeerd };
@@ -328,6 +401,43 @@ export function markeerActievePagina(nav: string, huidigBestand: string): { html
 // ─────────────────────────────────────────────────────────────────────────
 // 4. Assembly
 // ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Builds the breadcrumb for a page. Generated here rather than written by the
+ * model for the same reason the nav is: the trail has to agree with the actual
+ * page tree on every page, and a hand-written one drifts the moment a page is
+ * renamed. Emitted with schema.org microdata so search engines read the
+ * hierarchy the site actually has.
+ */
+export function bouwKruimelpad(pagina: PaginaMeta, paginas: PaginaMeta[]): string {
+  if (pagina.bestand === "index.html") return "";
+
+  const trail: PaginaMeta[] = [];
+  const home = paginas.find((p) => p.bestand === "index.html");
+  if (home) trail.push(home);
+  if (pagina.ouder) {
+    const ouder = paginas.find((p) => p.bestand === pagina.ouder);
+    if (ouder) trail.push(ouder);
+  }
+  trail.push(pagina);
+
+  const items = trail.map((stap, i) => {
+    const laatste = i === trail.length - 1;
+    const label = escapeHtml(stap.nav_label);
+    const inhoud = laatste
+      ? `<span itemprop="name" aria-current="page">${label}</span>`
+      : `<a itemprop="item" href="${stap.bestand}"><span itemprop="name">${label}</span></a>`;
+    return (
+      `<li itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">` +
+      `${inhoud}<meta itemprop="position" content="${i + 1}"></li>`
+    );
+  });
+
+  return (
+    `<nav data-kruimelpad aria-label="Kruimelpad" class="mx-auto max-w-6xl px-6 py-3">` +
+    `<ol itemscope itemtype="https://schema.org/BreadcrumbList">${items.join("")}</ol></nav>`
+  );
+}
 
 function escapeHtml(waarde: string): string {
   return waarde
@@ -381,19 +491,27 @@ export function bouwSite(
       navDoelen.add(href.split("#")[0]);
     }
   }
-  const onbereikbaar = bron.paginas.filter((p) => !navDoelen.has(p.bestand));
-  if (onbereikbaar.length) {
-    throw new SiteBuildError(
-      `De navigatie linkt niet naar: ${onbereikbaar.map((p) => p.bestand).join(", ")} — elke pagina moet in de navigatiebalk staan.`,
-    );
-  }
-
+  // Top-level pages must be in the nav. Subtopics may instead be reached from
+  // their own chapter page — a nav listing every subtopic is unusable, and a
+  // chapter that doesn't link its own subtopics is the broken case.
   const kapot = [...navResultaat.kapot, ...footerResultaat.kapot];
   const bodies: Record<string, string> = {};
   for (const pagina of bron.paginas) {
     const resultaat = herschrijfLinks(bron.bodies[pagina.bestand] ?? "", bron.paginas);
     bodies[pagina.bestand] = resultaat.html;
     kapot.push(...resultaat.kapot);
+  }
+
+  const onbereikbaar = bron.paginas.filter((p) => {
+    if (navDoelen.has(p.bestand)) return false;
+    if (!p.ouder) return true;
+    return !(bodies[p.ouder] ?? "").includes(`href="${p.bestand}"`);
+  });
+  if (onbereikbaar.length) {
+    throw new SiteBuildError(
+      `Niet bereikbaar: ${onbereikbaar.map((p) => p.bestand).join(", ")} — een hoofdpagina moet in de ` +
+        `navigatiebalk staan, een subpagina in de navigatie of op zijn ouderpagina.`,
+    );
   }
 
   if (kapot.length) {
@@ -447,10 +565,11 @@ export function bouwSite(
   }
 
   return bron.paginas.map((pagina) => {
-    const nav = markeerActievePagina(navResultaat.html, pagina.bestand);
+    const nav = markeerActievePagina(navResultaat.html, pagina.bestand, pagina.ouder);
     if (nav.gemarkeerd === 0) {
       throw new SiteBuildError(
-        `Geen navigatielink met data-nav-actief voor ${pagina.bestand} — zonder dat attribuut kan de actieve pagina niet gemarkeerd worden.`,
+        `Geen navigatielink met data-nav-actief voor ${pagina.bestand}${pagina.ouder ? ` of zijn ouder ${pagina.ouder}` : ""} — ` +
+          `zonder dat attribuut kan de actieve pagina niet gemarkeerd worden.`,
       );
     }
 
@@ -470,6 +589,7 @@ export function bouwSite(
         "</head>",
         "<body>",
         nav.html,
+        bouwKruimelpad(pagina, bron.paginas),
         bodies[pagina.bestand],
         footerResultaat.html,
         // Last thing before </body>, so every element a widget binds to
@@ -515,8 +635,21 @@ Geen <title>, geen <meta charset>, geen Tailwind-CDN-script — die zet de code 
 ===PAGINA:over-ons.html===
 (idem)
 
+Een pagina mag een subpagina van een andere zijn: zet dan "ouder":"diensten.html" in haar
+META-regel. Gebruik dat wanneer één hoofdthema echt uiteenvalt in aparte onderwerpen die elk een
+eigen pagina verdienen (hoofdstuk -> subonderwerp), bv. diensten.html met daaronder
+tuinaanleg.html en tuinonderhoud.html. Regels:
+- Maximaal één niveau diep. Moet je nóg verder opdelen, gebruik dan tabs binnen die pagina.
+- De ouderpagina moet zelf naar al haar subpagina's linken (een overzicht met kaartjes).
+- Subpagina's hoeven niet in de navigatiebalk te staan; staan ze er wel, dan als submenu onder
+  de ouder. De code markeert bij een subpagina automatisch de ouder in de nav als actieve sectie.
+- Het kruimelpad (Home / Diensten / Tuinaanleg) wordt door de code toegevoegd — schrijf het niet
+  zelf.
+- Gebruik geen subpagina's als de inhoud het niet vraagt; een platte site van 5 pagina's is
+  beter dan een kunstmatige boom.
+
 Harde regels voor het paginasysteem:
-- Bouw 4 tot 6 pagina's. Verplicht: index.html (home). Verder wat de brief/research vraagt, bv.
+- Bouw 4 tot 8 pagina's. Verplicht: index.html (home). Verder wat de brief/research vraagt, bv.
   over-ons.html, diensten.html (of producten.html), realisaties.html, contact.html.
 - Bestandsnamen: enkel kleine letters, cijfers en koppeltekens, eindigend op .html.
 - Elke pagina in ===META=== moet een eigen ===PAGINA:...===-sectie hebben, en omgekeerd.
