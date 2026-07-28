@@ -348,6 +348,38 @@ Ook niet gedaan: een echte e-commerce end-to-end-test (vereist een development s
 Admin-token, die bestaat nog niet) en een generatie die de nieuwe widgets/hiërarchie effectief
 gebruikt — de bestaande Hendrix-demo is van vóór deze features.
 
+## 2026-07-28 — geschatte duurtijden + briefing-media (MIKI TEA)
+
+- **Elke pipeline-stap toont nu een geschatte duur.** `app/src/lib/job-duur.ts` neemt de
+  mediaan van de laatste 10 geslaagde jobs per type uit `jobs`, met een standaardwaarde tot er
+  minstens 3 metingen zijn. De standaard voor `generatie` is bewust NIET de historische mediaan:
+  de meeste rijen dateren van vóór de verhuizing naar de worker (toen ~150s en één pagina).
+  De knop telt enkel de stappen op die díe klik echt uitvoert; een lopende job toont verstreken
+  tijd + resterend, en laat "resterend" vallen zodra de schatting voorbij is.
+- **Research draait nu ook in de worker.** Zelfde oorzaak als generatie: web_search + meerdere
+  web_fetch-rondes zitten met 50-138s tegen het ~150s-plafond van een Edge Function-invocatie.
+  Gaat het eroverheen, dan kapt het platform het proces af zonder exception en blijft de job
+  eeuwig op `bezig` staan — precies wat er met de MIKI TEA-lead gebeurd was.
+- **Afbeeldingen uit de briefing worden binnengehaald** (`worker/src/pipeline/media-ingest.ts`).
+  Een logo dat vanaf een Instagram-/Facebook-CDN gelinkt wordt, staat achter een ondertekende URL
+  die verloopt (die van MIKI TEA: nog geen 4 dagen geldig). Wordt nu één keer opgehaald, in
+  Storage gezet en door `track-and-serve` inline geserveerd. Hexkleuren in de briefing worden als
+  huisstijlpalet doorgegeven.
+- **De afbeeldingenbank wordt per lead gefilterd.** Een vaste lijst plus een promptregel
+  "gebruik geen foto van het verkeerde onderwerp" werkt niet: MIKI TEA (matcha-afhaal) kreeg
+  eerst een kapsalon en een gedekte restauranttafel, en na een veel strengere regel
+  bloemenwinkelfoto's. Nu krijgt het model enkel de foto's waarvan de trefwoorden matchen met
+  sector/briefing; matcht er niets, dan een lege lijst + instructie om met kleurvlakken te
+  werken. Wikimedia Commons is als bron van theebeelden bekeken en afgewezen: alles CC BY-SA
+  (naamsvermelding verplicht, share-alike) — niet geschikt voor een commerciële klantensite.
+
+**Wat Instagram/Facebook wél en niet kan.** Een Instagram-profiel is niet uitleesbaar: de pagina
+is een JS-shell zonder og:-tags en `web_fetch` botst op de login-muur (research meldt dat nu zelf
+in `open_vragen`). Een story-link is bovendien na 24u weg én login-only. Wat wél werkt: een
+directe CDN-afbeeldings-URL (wordt binnengehaald), de profiel-URL als community-link, en alles
+wat de gebruiker zelf in de notities zet. Menu's moeten dus als tekst in de briefing of als
+upload via het Site-interactie-paneel komen.
+
 ## Known gaps (deliberate, not oversights)
 
 - **KBO Open Data import script doesn't exist.** `sourcing-run` reads from a
