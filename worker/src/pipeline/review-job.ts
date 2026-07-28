@@ -3,6 +3,7 @@ import { takeScreenshot } from "../shared/screenshot.js";
 import { reviewDemo, type ReviewScreenshot } from "./review.js";
 import { regenerateWithFeedback } from "./generate-demo.js";
 import { uploadSite } from "./generate-job.js";
+import { haalAfbeeldingenAlsDataUri, vervangBestandsverwijzingen } from "./media-ingest.js";
 import { calculateKostEur } from "../shared/anthropic.js";
 import type { PaginaMeta } from "../shared/site-builder.js";
 
@@ -50,6 +51,9 @@ export async function processReviewJob(supabase: SupabaseClient, jobId: string, 
   const padVan = (bestand: string) =>
     paginas.length ? `${map}/${bestand}` : siteVersion.content_referentie;
 
+  // Inlined once, not per iteration: the lead's files don't change mid-review.
+  const beelden = await haalAfbeeldingenAlsDataUri(supabase, leadId);
+
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     const teBekijken = paginas.length
       ? paginas.slice(0, MAX_PAGINAS_IN_REVIEW)
@@ -66,7 +70,10 @@ export async function processReviewJob(supabase: SupabaseClient, jobId: string, 
       if (downloadError || !fileBlob) {
         throw new Error(`Kon ${pagina.bestand} niet downloaden: ${downloadError?.message}`);
       }
-      paginaHtml.push({ pagina, html: await fileBlob.text() });
+      // Inline the lead's own images: setContent() gives the page no origin,
+      // so a relative "bestanden/..." src would render as a broken image and
+      // the reviewer would reject a site that is actually fine.
+      paginaHtml.push({ pagina, html: vervangBestandsverwijzingen(await fileBlob.text(), beelden) });
     }
 
     // Sequential, not Promise.all: this now launches a browser per page

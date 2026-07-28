@@ -19,12 +19,59 @@ export async function fetchDemoHtml(path: string): Promise<string | null> {
  *  so preview code has one shape to deal with. */
 export type DemoSite = Record<string, string>;
 
+/**
+ * The lead's own images, as data: URIs keyed by file name.
+ *
+ * Needed because a preview renders through `srcdoc`, which has no origin and
+ * no directory — so `<img src="bestanden/logo.jpg">`, which resolves perfectly
+ * on the real hosting route, resolves to nothing here and shows a broken
+ * image. Inlining the bytes sidesteps that entirely, the same way the HTML
+ * itself is inlined rather than loaded from a URL.
+ */
+async function fetchAfbeeldingenAlsDataUri(leadId: string): Promise<Record<string, string>> {
+  const supabase = createClient();
+  const { data: rijen } = await supabase
+    .from("site_bestanden")
+    .select("bestandsnaam, opslag_pad, content_type")
+    .eq("lead_id", leadId);
+
+  const beelden: Record<string, string> = {};
+  for (const rij of (rijen ?? []) as { bestandsnaam: string; opslag_pad: string; content_type: string | null }[]) {
+    if (!(rij.content_type ?? "").startsWith("image/")) continue;
+    const { data } = await supabase.storage.from("demos").download(rij.opslag_pad);
+    if (!data) continue;
+    // Logos and the like are a few kB; anything genuinely large would bloat
+    // every page of the preview, so it keeps its (broken-in-preview) path
+    // rather than being inlined N times.
+    if (data.size > 2 * 1024 * 1024) continue;
+    beelden[rij.bestandsnaam] = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.readAsDataURL(data);
+    });
+  }
+  return beelden;
+}
+
+/** Replaces `bestanden/<naam>` references with the inlined data: URI. */
+export function vervangBestandsverwijzingen(html: string, beelden: Record<string, string>): string {
+  return html.replace(
+    /(["'(])\.?\/?bestanden\/([^"')?#]+)/gi,
+    (volledig, opening: string, naam: string) => {
+      const dataUri = beelden[decodeURIComponent(naam)];
+      return dataUri ? `${opening}${dataUri}` : volledig;
+    },
+  );
+}
+
 export async function fetchDemoSite(version: SiteVersion): Promise<DemoSite | null> {
   if (!version.content_referentie) return null;
 
+  const beelden = await fetchAfbeeldingenAlsDataUri(version.lead_id);
+
   if (!version.paginas?.length) {
     const html = await fetchDemoHtml(version.content_referentie);
-    return html ? { "index.html": html } : null;
+    return html ? { "index.html": vervangBestandsverwijzingen(html, beelden) } : null;
   }
 
   const map = version.content_referentie.replace(/\/index\.html$/, "");
@@ -37,7 +84,7 @@ export async function fetchDemoSite(version: SiteVersion): Promise<DemoSite | nu
     // A page that fails to download is left out rather than failing the whole
     // preview — the rest of the site is still worth looking at, and the
     // preview reports the missing page when a link leads to it.
-    if (html !== null) site[bestand] = html;
+    if (html !== null) site[bestand] = vervangBestandsverwijzingen(html, beelden);
   }
   return site["index.html"] ? site : null;
 }

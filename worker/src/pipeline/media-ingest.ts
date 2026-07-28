@@ -145,6 +145,53 @@ export async function ingestBriefingAfbeeldingen(
   return resultaten;
 }
 
+/**
+ * The lead's own images as data: URIs, keyed by file name.
+ *
+ * The review loop screenshots pages with `page.setContent(html)`, which gives
+ * the document no origin and no directory — so `<img src="bestanden/logo.jpg">`
+ * resolves to nothing and the reviewer sees a broken image where the client's
+ * logo should be. It would then reject the page, correctly by its own lights,
+ * and the loop would regenerate a site that was never actually broken. That is
+ * the same shape of bug as the review-loop screenshotting raw HTML source back
+ * in July, and it costs a full regeneration cycle every time.
+ */
+export async function haalAfbeeldingenAlsDataUri(
+  supabase: SupabaseClient,
+  leadId: string,
+): Promise<Record<string, string>> {
+  const { data: rijen } = await supabase
+    .from("site_bestanden")
+    .select("bestandsnaam, opslag_pad, content_type")
+    .eq("lead_id", leadId);
+
+  const beelden: Record<string, string> = {};
+  for (const rij of (rijen ?? []) as {
+    bestandsnaam: string;
+    opslag_pad: string;
+    content_type: string | null;
+  }[]) {
+    if (!(rij.content_type ?? "").startsWith("image/")) continue;
+    const { data } = await supabase.storage.from("demos").download(rij.opslag_pad);
+    if (!data) continue;
+    const bytes = Buffer.from(await data.arrayBuffer());
+    if (bytes.byteLength > 2 * 1024 * 1024) continue;
+    beelden[rij.bestandsnaam] = `data:${rij.content_type};base64,${bytes.toString("base64")}`;
+  }
+  return beelden;
+}
+
+/** Replaces `bestanden/<naam>` references with the inlined data: URI. */
+export function vervangBestandsverwijzingen(html: string, beelden: Record<string, string>): string {
+  return html.replace(
+    /(["'(])\.?\/?bestanden\/([^"')?#]+)/gi,
+    (volledig, opening: string, naam: string) => {
+      const dataUri = beelden[decodeURIComponent(naam)];
+      return dataUri ? `${opening}${dataUri}` : volledig;
+    },
+  );
+}
+
 /** Hex colours a briefing names, so the generator uses the client's actual
  *  palette instead of the generic sector styling. */
 export function vindMerkkleuren(briefing: string | null): string[] {
