@@ -230,13 +230,20 @@ async function handleBestand(
   const { data: blob, error } = await supabase.storage.from("demos").download(rij.opslag_pad);
   if (error || !blob) return new Response("Kon bestand niet ophalen.", { status: 500 });
 
+  const type = rij.content_type ?? "application/octet-stream";
+  // Images render inline — a logo pulled in from the briefing is used in an
+  // <img>, and forcing a download there would break the page. Everything else
+  // stays an attachment: an uploaded HTML or SVG-with-script file must never
+  // execute on this origin. SVG is treated as a download for that reason,
+  // despite being an image.
+  const inline = type.startsWith("image/") && type !== "image/svg+xml";
+
   return new Response(await blob.arrayBuffer(), {
     headers: {
-      "Content-Type": rij.content_type ?? "application/octet-stream",
-      // Downloads, not inline rendering: Storage's own text/plain sandboxing
-      // doesn't apply here, and an uploaded HTML file must never execute on
-      // this origin.
-      "Content-Disposition": `attachment; filename="${rij.bestandsnaam.replace(/"/g, "")}"`,
+      "Content-Type": type,
+      "Content-Disposition": inline
+        ? "inline"
+        : `attachment; filename="${rij.bestandsnaam.replace(/"/g, "")}"`,
       "X-Content-Type-Options": "nosniff",
       "Cache-Control": "public, max-age=3600",
     },

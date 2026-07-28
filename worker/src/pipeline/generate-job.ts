@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { genereerSite } from "./generate-demo.js";
+import { ingestBriefingAfbeeldingen, vindMerkkleuren } from "./media-ingest.js";
 import { calculateKostEur } from "../shared/anthropic.js";
 import type { GebouwdePagina, PaginaMeta, SiteBron } from "../shared/site-builder.js";
 
@@ -39,16 +40,55 @@ export async function processGenerateJob(
       supabase.from("site_bestanden").select("bestandsnaam, omschrijving").eq("lead_id", leadId),
     ]);
 
+  // Images the briefing links to are copied into our own Storage first, so the
+  // generated site never points at a signed CDN URL that expires — see
+  // media-ingest.ts. Runs before the file list is read so freshly imported
+  // images are part of it.
+  const merkkleuren = vindMerkkleuren(lead.notities);
+  const geimporteerd = await ingestBriefingAfbeeldingen(supabase, leadId, lead.notities);
+  const { data: bestandRijenNa } = geimporteerd.length
+    ? await supabase.from("site_bestanden").select("bestandsnaam, omschrijving, content_type").eq("lead_id", leadId)
+    : { data: bestandRijen };
+
   // Downloads can only point at files that actually exist, so the list is both
   // an input to the prompt and a hard check in the builder — the generator
   // can't invent a brochure the way it once invented Unsplash IDs.
-  const bestandLijst = (bestandRijen ?? []) as { bestandsnaam: string; omschrijving: string | null }[];
+  const bestandLijst = (bestandRijenNa ?? bestandRijen ?? []) as {
+    bestandsnaam: string;
+    omschrijving: string | null;
+    content_type?: string | null;
+  }[];
   const bestanden = bestandLijst.map((b) => b.bestandsnaam);
-  const bestandenBriefing = bestandLijst.length
-    ? "Beschikbare downloadbestanden voor deze klant. Link ernaar met href=\"bestanden/<naam>\" en " +
-      "link nooit naar een bestand dat hier niet bij staat:\n" +
-      bestandLijst.map((b) => `- ${b.bestandsnaam}${b.omschrijving ? ` — ${b.omschrijving}` : ""}`).join("\n")
-    : "Er zijn geen downloadbestanden voor deze klant — gebruik dus geen downloads-blok.";
+  const isAfbeelding = (b: { bestandsnaam: string; content_type?: string | null }) =>
+    (b.content_type ?? "").startsWith("image/") || /\.(jpe?g|png|webp|gif)$/i.test(b.bestandsnaam);
+
+  const afbeeldingen = bestandLijst.filter(isAfbeelding);
+  const documenten = bestandLijst.filter((b) => !isAfbeelding(b));
+
+  const bestandenBriefing = [
+    afbeeldingen.length
+      ? "Eigen afbeeldingen van deze klant. Gebruik ze met <img src=\"bestanden/<naam>\">. Dit zijn " +
+        "ECHTE beelden van de klant en gaan altijd voor op een foto uit de afbeeldingenbank. Staat er " +
+        "een logo bij, zet dat dan in de navigatiebalk en de footer in plaats van de bedrijfsnaam als " +
+        "tekst:\n" +
+        afbeeldingen.map((b) => `- ${b.bestandsnaam}${b.omschrijving ? ` — ${b.omschrijving}` : ""}`).join("\n")
+      : null,
+    documenten.length
+      ? "Downloadbare documenten. Link ernaar met href=\"bestanden/<naam>\":\n" +
+        documenten.map((b) => `- ${b.bestandsnaam}${b.omschrijving ? ` — ${b.omschrijving}` : ""}`).join("\n")
+      : null,
+    bestandLijst.length
+      ? "Verwijs nooit naar een bestand dat niet in bovenstaande lijst staat — de build weigert dat."
+      : "Er zijn geen eigen bestanden of afbeeldingen voor deze klant — gebruik geen downloads-blok.",
+    // A briefing that names hex colours is naming the client's actual brand,
+    // which beats the generic sector palette every time.
+    merkkleuren.length
+      ? `De klant heeft deze merkkleuren opgegeven: ${merkkleuren.join(", ")}. Bouw het kleurenschema ` +
+        "hierop (met bijpassende neutralen en voldoende contrast), niet op de standaard sectorkleuren."
+      : null,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   const { bron, paginas: gebouwd, usage } = await genereerSite(
     lead,

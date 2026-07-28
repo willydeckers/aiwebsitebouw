@@ -1,0 +1,154 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+// Pulls images that a briefing links to into our own Storage, once, and hands
+// the generator a stable local path instead of the original URL.
+//
+// Why this exists: a briefing typically links a logo straight from wherever
+// the client already has it — an Instagram or Facebook CDN URL. Those URLs are
+// signed and expire. The MIKI TEA logo that prompted this carried
+// `oe=6A6D5401`, i.e. valid for under four days. Embedding it in a generated
+// site produces a logo that works in the review screenshot, works in the demo
+// you send, and is a broken image by the time the lead clicks it a week later.
+// That is the same class of failure as the invented Unsplash IDs, except it
+// fails on a delay, which makes it worse.
+//
+// So: fetch once at generation time, store under the lead's own files, and let
+// track-and-serve deliver it. The demo then has no dependency on a third-party
+// CDN at all.
+
+const MAX_BYTES = 8 * 1024 * 1024;
+const TOEGESTANE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml"];
+const EXTENSIE: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "image/svg+xml": "svg",
+};
+
+export type IngestResultaat = {
+  bestandsnaam: string;
+  omschrijving: string;
+  bron: string;
+};
+
+/** Labels a URL by what the line it sits on calls it, so a logo ends up named
+ *  "logo" rather than "afbeelding-3" and the prompt can say what it is. */
+function labelVoor(regel: string, index: number): { naam: string; omschrijving: string } | null {
+  const laag = regel.toLowerCase();
+  if (laag.includes("logo")) return { naam: "logo", omschrijving: "Logo van de klant" };
+  if (laag.includes("menu") || laag.includes("kaart")) return { naam: "menu", omschrijving: "Menu/kaart van de klant" };
+  if (laag.includes("banner") || laag.includes("hero")) return { naam: "hero", omschrijving: "Sfeer-/bannerbeeld" };
+  if (laag.includes("foto") || laag.includes("afbeelding") || laag.includes("beeld")) {
+    return { naam: `foto-${index}`, omschrijving: "Foto uit de briefing" };
+  }
+  return null;
+}
+
+const URL_PATROON = /https?:\/\/[^\s<>"')]+/g;
+// Hosts that serve images without an image extension in the path. Without
+// this, a signed Instagram/Facebook CDN URL is skipped for looking like a
+// regular link.
+const BEELD_HOSTS = /(cdninstagram\.com|fbcdn\.net|scontent|cloudinary\.com|imgix\.net|squarespace-cdn\.com)/i;
+const BEELD_EXTENSIE = /\.(jpe?g|png|webp|gif|svg)(\?|$)/i;
+
+/**
+ * Finds image URLs in a briefing and copies them into `{leadId}/bestanden/`.
+ * Best-effort per URL: one unreachable image must not fail a generation, it
+ * just doesn't become available to the prompt.
+ */
+export async function ingestBriefingAfbeeldingen(
+  supabase: SupabaseClient,
+  leadId: string,
+  briefing: string | null,
+): Promise<IngestResultaat[]> {
+  if (!briefing) return [];
+
+  const kandidaten: { url: string; naam: string; omschrijving: string }[] = [];
+  let teller = 0;
+
+  for (const regel of briefing.split("\n")) {
+    for (const url of regel.match(URL_PATROON) ?? []) {
+      if (!BEELD_EXTENSIE.test(url) && !BEELD_HOSTS.test(url)) continue;
+      teller++;
+      const label = labelVoor(regel, teller) ?? {
+        naam: `afbeelding-${teller}`,
+        omschrijving: "Afbeelding uit de briefing",
+      };
+      // First label wins: a briefing that mentions the logo once shouldn't
+      // end up with logo, logo-2, logo-3 across regenerations.
+      if (kandidaten.some((k) => k.naam === label.naam)) continue;
+      kandidaten.push({ url, ...label });
+    }
+  }
+
+  const resultaten: IngestResultaat[] = [];
+
+  for (const kandidaat of kandidaten) {
+    try {
+      const response = await fetch(kandidaat.url, {
+        headers: { "User-Agent": "Mozilla/5.0", Accept: "image/*" },
+        signal: AbortSignal.timeout(20000),
+      });
+      if (!response.ok) {
+        console.warn(`media-ingest: ${kandidaat.naam} gaf ${response.status}, overgeslagen`);
+        continue;
+      }
+
+      const type = (response.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+      if (!TOEGESTANE_TYPES.includes(type)) {
+        console.warn(`media-ingest: ${kandidaat.naam} is geen afbeelding (${type}), overgeslagen`);
+        continue;
+      }
+
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (bytes.byteLength > MAX_BYTES || bytes.byteLength === 0) {
+        console.warn(`media-ingest: ${kandidaat.naam} is ${bytes.byteLength} bytes, overgeslagen`);
+        continue;
+      }
+
+      const bestandsnaam = `${kandidaat.naam}.${EXTENSIE[type]}`;
+      const opslagPad = `${leadId}/bestanden/${bestandsnaam}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("demos")
+        .upload(opslagPad, bytes, { contentType: type, upsert: true });
+      if (uploadError) {
+        console.warn(`media-ingest: upload van ${bestandsnaam} mislukt: ${uploadError.message}`);
+        continue;
+      }
+
+      const { error: rijError } = await supabase.from("site_bestanden").upsert(
+        {
+          lead_id: leadId,
+          bestandsnaam,
+          opslag_pad: opslagPad,
+          content_type: type,
+          grootte_bytes: bytes.byteLength,
+          omschrijving: `${kandidaat.omschrijving} (opgehaald uit de briefing)`,
+          toegevoegd_door: "briefing-import",
+        },
+        { onConflict: "lead_id,bestandsnaam" },
+      );
+      if (rijError) {
+        console.warn(`media-ingest: registratie van ${bestandsnaam} mislukt: ${rijError.message}`);
+        continue;
+      }
+
+      resultaten.push({ bestandsnaam, omschrijving: kandidaat.omschrijving, bron: kandidaat.url });
+      console.log(`media-ingest: ${bestandsnaam} opgeslagen (${bytes.byteLength} bytes)`);
+    } catch (err) {
+      console.warn(`media-ingest: ${kandidaat.naam} mislukt: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  return resultaten;
+}
+
+/** Hex colours a briefing names, so the generator uses the client's actual
+ *  palette instead of the generic sector styling. */
+export function vindMerkkleuren(briefing: string | null): string[] {
+  if (!briefing) return [];
+  const kleuren = briefing.match(/#[0-9a-fA-F]{6}\b/g) ?? [];
+  return [...new Set(kleuren.map((k) => k.toUpperCase()))].slice(0, 6);
+}

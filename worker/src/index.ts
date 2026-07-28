@@ -1,5 +1,6 @@
 import { createWorkerClient } from "./shared/supabase.js";
 import { processGenerateJob } from "./pipeline/generate-job.js";
+import { processResearchJob } from "./pipeline/research-job.js";
 import { processReviewJob } from "./pipeline/review-job.js";
 import { processShopifyBuildJob } from "./pipeline/shopify-build-job.js";
 
@@ -16,7 +17,7 @@ async function claimNextJob() {
     .from("jobs")
     .select("id, lead_id, type")
     .eq("status", "wachtrij")
-    .in("type", ["generatie", "review", "shopify_opbouw"])
+    .in("type", ["research", "generatie", "review", "shopify_opbouw"])
     .order("aangemaakt_op", { ascending: true })
     .limit(1);
 
@@ -57,7 +58,9 @@ async function runJob(job: {
 
     if (!job.lead_id) throw new Error(`Job ${job.id} (${job.type}) heeft geen lead_id.`);
 
-    if (job.type === "generatie") {
+    if (job.type === "research") {
+      await processResearchJob(supabase, job.id, job.lead_id);
+    } else if (job.type === "generatie") {
       await processGenerateJob(supabase, job.id, job.lead_id, job.payload);
     } else if (job.type === "review") {
       await processReviewJob(supabase, job.id, job.lead_id);
@@ -87,5 +90,5 @@ async function pollLoop() {
   }
 }
 
-console.log("Worker gestart — pollt jobs (generatie, review, shopify_opbouw) elke 5s.");
+console.log("Worker gestart — pollt jobs (research, generatie, review, shopify_opbouw) elke 5s.");
 pollLoop();

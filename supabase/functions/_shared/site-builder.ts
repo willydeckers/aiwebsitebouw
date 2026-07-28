@@ -543,9 +543,14 @@ export function bouwSite(
   if (bestanden) {
     const gevraagd = new Set<string>();
     for (const html of [navResultaat.html, footerResultaat.html, ...Object.values(bodies)]) {
-      for (const tag of html.match(ANKER_PATROON) ?? []) {
-        const href = hrefVan(tag);
-        const match = href === null ? null : BESTAND_LINK_PATROON.exec(href.trim());
+      const verwijzingen = [
+        ...(html.match(ANKER_PATROON) ?? []).map(hrefVan),
+        // <img src="bestanden/logo.jpg"> is the same promise as a download
+        // link and breaks just as visibly, so it gets the same check.
+        ...[...html.matchAll(/<img\b[^>]*\bsrc\s*=\s*("([^"]*)"|'([^']*)')/gi)].map((m) => m[2] ?? m[3] ?? ""),
+      ];
+      for (const verwijzing of verwijzingen) {
+        const match = verwijzing === null ? null : BESTAND_LINK_PATROON.exec(verwijzing.trim());
         if (match) gevraagd.add(decodeURIComponent(match[1].split("?")[0]));
       }
     }

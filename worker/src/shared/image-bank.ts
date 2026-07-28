@@ -1,5 +1,6 @@
-// Duplicated in worker/src/pipeline/generate-demo.ts — see the note in
+// Duplicated from supabase/functions/_shared/image-bank.ts — see the note in
 // sector-styles.ts on why (no shared module across the Deno/Node boundary).
+// Apart from this header the two files are identical.
 //
 // Why this exists: generatie was letting the model pick Unsplash CDN photo
 // URLs (https://images.unsplash.com/photo-<id>) from memory. That's
