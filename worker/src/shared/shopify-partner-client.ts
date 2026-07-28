@@ -1,6 +1,10 @@
 import { withShopifyRateLimit } from "./shopify-rate-limiter.js";
 
-const PARTNER_API_VERSION = "2025-01";
+// Verified live on 2026-07-28: 2025-01 (and everything before 2025-10) now
+// answers "Invalid API version" with a 404. Any call through this client was
+// therefore already dead. Re-check with worker/scripts/partner-api-status.ts
+// rather than bumping this on a hunch.
+const PARTNER_API_VERSION = "2026-01";
 
 export async function partnerGraphQL<T>(
   query: string,
@@ -36,15 +40,25 @@ export async function partnerGraphQL<T>(
 
 /**
  * Spec 3.8 asks for "Development store via Shopify Partner API". That is not
- * possible, and it is not a limitation of our credentials.
+ * possible, and it is not a limitation of our credentials or our API version.
  *
- * A `developmentStoreCreate` mutation used to live here, written from
- * recollection and flagged as unverified. It was validated against the real
- * Partner API schema on 2026-07-27: both the mutation and its input type do
- * not exist. The Partner API exposes exactly two mutations — appCreditCreate
- * and appSubscriptionCancel — and is otherwise a read API over apps, themes,
- * events and financials. There is no store-creation endpoint to call, so no
- * amount of fixing the query shape would have made this work.
+ * This has now been checked against the live schema twice, on two different
+ * mutation names that were each proposed from recollection:
+ *   2026-07-27  developmentStoreCreate  — doesn't exist
+ *   2026-07-28  devStoreCreate          — doesn't exist
+ * Both come back as "Field '<naam>' doesn't exist on type 'MutationRoot'",
+ * which is the schema talking, not a permission error.
+ *
+ * What the API actually offers for organisation 4987287 on 2026-01:
+ *   mutations : appCreditCreate                     (unstable adds
+ *               appSubscriptionCancel, eventsinkCreate, eventsinkDelete)
+ *   queries   : app, publicApiVersions, transaction, transactions
+ *
+ * Note what's missing from the query side: there is no field that returns
+ * shops or stores at all. So even if a store were created some other way,
+ * this API could not list it, let alone hand back an Admin API token. Token
+ * retrieval is a separate mechanism entirely (an app install / OAuth grant
+ * against that specific shop).
  *
  * Creating a development store is a manual action in the Partner Dashboard.
  * The flow is therefore: create it there, then hand its domain to the
@@ -52,13 +66,18 @@ export async function partnerGraphQL<T>(
  * shopify-build-job.ts). This function remains only so that a future caller
  * assuming the automated path fails with the reason instead of a confusing
  * GraphQL error.
+ *
+ * Re-check with `worker/scripts/partner-api-status.ts` before assuming this
+ * is still true — Shopify may add it later, and that script answers it with
+ * facts in ten seconds.
  */
 export function createDevelopmentStore(): Promise<never> {
   return Promise.reject(
     new Error(
       "De Shopify Partner API kan geen development store aanmaken — die mutation bestaat niet " +
-        "(enkel appCreditCreate en appSubscriptionCancel zijn beschikbaar). Maak de store manueel " +
-        "aan in het Partner Dashboard en geef het domein mee bij het omzetten naar Shopify-klant.",
+        "(op 2026-01 is appCreditCreate de enige mutation, en geen enkele query geeft winkels " +
+        "terug). Maak de store manueel aan in het Partner Dashboard en geef het domein mee bij " +
+        "het omzetten naar Shopify-klant. Controleer met worker/scripts/partner-api-status.ts.",
     ),
   );
 }

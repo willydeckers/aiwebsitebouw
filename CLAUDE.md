@@ -425,11 +425,23 @@ staat, en het hangt op een account, niet op code.
   but nothing populates that table yet — KBO publishes a downloadable file periodically,
   not a live API, so this needs a one-off (then recurring) import job once the user has
   downloaded a file. Ask before building this.
-- **Shopify: twee mutations bleken niet te bestaan en zijn vervangen** (zie de sessie van
-  2026-07-27 hierboven). Wat nog open staat: er is nog geen echte development store mét
-  Admin-token, dus `chat-edit-shopify` (generieke GraphQL-passthrough, nooit verzonnen) en de
-  rate limiter zijn nog niet tegen een levende winkel gedraaid. Een e-commerce
-  end-to-end-test vraagt eerst zo'n store.
+- **Shopify: automatisch een development store aanmaken kan niet.** Dit is nu tweemaal tegen
+  het levende schema gecontroleerd, op twee verschillende voorgestelde mutation-namen:
+  `developmentStoreCreate` (2026-07-27) en `devStoreCreate` (2026-07-28). Allebei antwoorden ze
+  `Field '<naam>' doesn't exist on type 'MutationRoot'` — dat is het schema, geen rechtenfout.
+  Feiten voor organisatie 4987287 op versie 2026-01:
+  - mutations: **enkel `appCreditCreate`** (`unstable` heeft er vier: + appSubscriptionCancel,
+    eventsinkCreate, eventsinkDelete)
+  - queries: `app`, `publicApiVersions`, `transaction`, `transactions` — **geen enkel veld dat
+    winkels teruggeeft**, dus ook geen weg naar een Admin-token
+  - geldige versies: enkel 2025-10, 2026-01 en unstable; alles daarvoor geeft "Invalid API
+    version". De client stond op `2025-01` en was daarmee stilzwijgend dood — rechtgezet.
+  - de URL moet het organisatie-id in het pad hebben (`/{org}/api/{versie}/graphql.json`);
+    zonder dat krijg je een 404-HTML-pagina die makkelijk voor een storing doorgaat.
+  Hercontroleer met `worker/scripts/partner-api-status.ts` in plaats van dit opnieuw uit het
+  geheugen te beweren. Wat dus open blijft: er is nog geen development store mét Admin-token, en
+  die moet manueel aangemaakt worden; `chat-edit-shopify` en de rate limiter zijn daardoor nog
+  niet tegen een levende winkel gedraaid.
 - **No E2E test exists yet.** Playwright is a dependency in both `app/` and `worker/`
   already; `app/e2e/critical-path.spec.ts` (lead created → job triggered → Realtime status
   change) still needs writing, and needs a real test Supabase project to run against.
