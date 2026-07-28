@@ -4,6 +4,13 @@ import { useEffect, useState } from "react";
 import type { Lead, SiteVersion, ReviewLogEntry, Job } from "@/lib/types";
 import { LEAD_PIPELINE, LEAD_STATUS_LABELS } from "@/lib/types";
 import { fetchCostSummary, type CostSummary } from "@/lib/costs";
+import {
+  fetchDuurSchattingen,
+  formatteerDuur,
+  formatteerVerstreken,
+  resterendeTijd,
+  type DuurSchattingen,
+} from "@/lib/job-duur";
 import { createClient } from "@/lib/supabase/client";
 import { updateLeadGegevens, updateLeadNotities } from "./actions";
 import { StatusBadge } from "./status-badge";
@@ -36,6 +43,10 @@ export function LeadDetailPanel({
   const [reviewLog, setReviewLog] = useState<ReviewLogEntry[]>([]);
   const [costSummary, setCostSummary] = useState<CostSummary | null>(null);
   const [latestJob, setLatestJob] = useState<Job | null>(null);
+  const [duurSchattingen, setDuurSchattingen] = useState<DuurSchattingen>({});
+  // Drives the live elapsed counter on a running job. A plain interval rather
+  // than anything cleverer — it only ticks while a job is actually running.
+  const [nu, setNu] = useState(() => Date.now());
 
   useEffect(() => {
     const supabase = createClient();
@@ -61,6 +72,7 @@ export function LeadDetailPanel({
     }
 
     fetchCostSummary(supabase, lead.id).then(setCostSummary);
+    fetchDuurSchattingen(supabase).then(setDuurSchattingen);
     loadSiteVersions();
     loadLatestJob();
 
@@ -102,6 +114,14 @@ export function LeadDetailPanel({
       supabase.removeChannel(channel);
     };
   }, [lead.id]);
+
+  const jobLoopt = latestJob?.status === "bezig" || latestJob?.status === "wachtrij";
+
+  useEffect(() => {
+    if (!jobLoopt) return;
+    const timer = setInterval(() => setNu(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [jobLoopt]);
 
   async function handleBlur() {
     if (notities === (lead.notities ?? "")) return;
@@ -305,8 +325,30 @@ export function LeadDetailPanel({
             <p className="mt-2 text-xs text-slate-500">
               Laatste job: <span className="font-medium">{latestJob.type}</span> —{" "}
               {latestJob.status}
-              {latestJob.status === "bezig" || latestJob.status === "wachtrij" ? (
+              {jobLoopt ? (
                 <span className="ml-1 inline-block animate-pulse text-blue-500">●</span>
+              ) : null}
+              {jobLoopt ? (
+                <span className="ml-1 text-slate-400">
+                  {latestJob.gestart_op ? (
+                    <>
+                      {formatteerVerstreken(latestJob.gestart_op, nu)} bezig
+                      {(() => {
+                        const schatting = duurSchattingen[latestJob.type]?.seconden;
+                        if (!schatting) return null;
+                        const rest = resterendeTijd(latestJob.gestart_op, schatting, nu);
+                        return rest ? `, ${rest}` : ", duurt langer dan gebruikelijk";
+                      })()}
+                    </>
+                  ) : (
+                    <>
+                      in de wachtrij
+                      {duurSchattingen[latestJob.type]
+                        ? ` — duurt straks ${formatteerDuur(duurSchattingen[latestJob.type]!.seconden)}`
+                        : ""}
+                    </>
+                  )}
+                </span>
               ) : null}
               {latestJob.error_message ? (
                 <span className="block text-red-600">{latestJob.error_message}</span>
@@ -366,6 +408,7 @@ export function LeadDetailPanel({
         <section className="mt-6 space-y-2">
           <PipelineButton
             leadId={lead.id}
+            duurSchattingen={duurSchattingen}
             alreadyResearched={pipelineIndex > LEAD_PIPELINE.indexOf("research") || !!lead.research_samenvatting || !!lead.open_vragen}
             alreadyGenerated={siteVersions.length > 0}
             reviewHandled={reviewReached}

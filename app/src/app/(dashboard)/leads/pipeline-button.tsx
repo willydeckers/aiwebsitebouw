@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { startResearch } from "./research-actions";
 import { startGeneration } from "./generate-actions";
 import { startReview } from "./review-actions";
+import { formatteerDuur, type DuurSchattingen } from "@/lib/job-duur";
 
 /**
  * Spec 3.1b→3.4: manual intake gets the same automatic
@@ -17,12 +18,14 @@ export function PipelineButton({
   alreadyResearched,
   alreadyGenerated,
   reviewHandled,
+  duurSchattingen,
   onChanged,
 }: {
   leadId: string;
   alreadyResearched: boolean;
   alreadyGenerated: boolean;
   reviewHandled: boolean;
+  duurSchattingen: DuurSchattingen;
   onChanged: () => void;
 }) {
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +36,7 @@ export function PipelineButton({
     setError(null);
     startTransition(async () => {
       if (!alreadyResearched) {
-        setStep("Research loopt...");
+        setStep(`Research loopt... (${formatteerDuur(duurSchattingen.research?.seconden ?? 80)})`);
         const researchError = await startResearch(leadId);
         if (researchError) {
           setError(researchError);
@@ -44,7 +47,7 @@ export function PipelineButton({
       }
 
       if (!alreadyGenerated) {
-        setStep("Demo wordt gegenereerd...");
+        setStep("Demo-job in de wachtrij zetten...");
         const generateError = await startGeneration(leadId);
         if (generateError) {
           setError(generateError);
@@ -71,6 +74,16 @@ export function PipelineButton({
 
   const alreadyDone = alreadyResearched && alreadyGenerated && reviewHandled;
 
+  // What's still to do, so the estimate on the button matches the steps this
+  // click will actually run rather than the whole pipeline every time.
+  const resterendeStappen = [
+    alreadyResearched ? null : duurSchattingen.research,
+    alreadyGenerated ? null : duurSchattingen.generatie,
+    reviewHandled ? null : duurSchattingen.review,
+  ].filter((s): s is NonNullable<typeof s> => !!s);
+  const totaal = resterendeStappen.reduce((som, s) => som + s.seconden, 0);
+  const gemeten = resterendeStappen.every((s) => s.gemeten);
+
   return (
     <div className="space-y-1">
       <button
@@ -88,6 +101,12 @@ export function PipelineButton({
               ? "Verder met pipeline"
               : "Start pipeline (research → demo → review)"}
       </button>
+      {!alreadyDone && totaal > 0 ? (
+        <p className="text-center text-xs text-slate-400">
+          Duurt samen {formatteerDuur(totaal)}
+          {gemeten ? "" : " (ruwe schatting)"} — je mag dit venster sluiten, de pipeline loopt door.
+        </p>
+      ) : null}
       {error ? <p className="text-xs text-red-600">{error}</p> : null}
     </div>
   );
