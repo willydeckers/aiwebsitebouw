@@ -465,6 +465,19 @@ selector-bijstellen bij de eerste echte run; daarvoor bestaan het stappenlog en 
 bij elke mislukte stap. Ook ongetest: de client credentials grant zelf, want er is nog geen app
 in het Dev Dashboard en geen winkel om ze op te installeren.
 
+**De demo-inhoud gaat nu ook de winkel in** (`worker/src/shopify/site-naar-shopify.ts`). Dat
+porten bestond voor geen enkel site-type; het werkt omdat een `SiteBron` de pagina-bodies al
+zonder nav/footer/head bewaart — precies wat een Shopify-pagina moet zijn, want het thema levert
+die drie. `paginas` → `pageCreate`, de paginaboom → een `Menu`, footer en head vallen weg.
+Vooraf tegen het levende Admin-schema gecontroleerd (pageCreate/menuCreate/menuUpdate/themePublish
+bestaan allemaal), en dát bracht een scope-fout aan het licht: `menuCreate` vereist
+`write_online_store_navigation`, apart van `write_content`. Zonder die scope zouden de pagina's
+netjes overkomen en zou de navigatie stil falen. Twee bewuste keuzes: `index.html` wordt géén
+Page (dat is de storefront-home die het thema rendert), en een pagina met `toegang: beveiligd`
+wordt overgeslagen in plaats van ongepubliceerd aangemaakt — Shopify heeft geen equivalent voor
+de toegangscode, dus porten zou de bescherming stilletjes weghalen. 7 tests dekken de mapping;
+niet tegen een levende winkel gedraaid, want die is er nog niet.
+
 **Juridische kanttekening die de gebruiker moet wegen:** geautomatiseerd door het Partner
 Dashboard klikken staat vermoedelijk op gespannen voet met de Partner Program Agreement. Het
 risico is niet een gefaalde job maar schorsing van het Partner-account, met alle klantwinkels
