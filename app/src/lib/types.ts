@@ -164,6 +164,10 @@ export type SiteBestand = {
   omschrijving: string | null;
   toegevoegd_door: string | null;
   aangemaakt_op: string;
+  /** Transcription of an uploaded image (e.g. a menu card), made by the
+   *  worker during generation. "" = read but nothing usable on it. */
+  geextraheerde_tekst: string | null;
+  tekst_geextraheerd_op: string | null;
 };
 
 /** Never carries the code or its hash — only whether one is set. */

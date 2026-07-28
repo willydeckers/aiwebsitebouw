@@ -1,7 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { genereerSite } from "./generate-demo.js";
-import { ingestBriefingAfbeeldingen, vindMerkkleuren } from "./media-ingest.js";
-import { calculateKostEur } from "../shared/anthropic.js";
+import {
+  ingestBriefingAfbeeldingen,
+  leesAangeleverdeAfbeeldingen,
+  vindMerkkleuren,
+} from "./media-ingest.js";
+import { calculateKostEur, createAnthropicClient } from "../shared/anthropic.js";
 import type { GebouwdePagina, PaginaMeta, SiteBron } from "../shared/site-builder.js";
 
 const PROMPT_VERSIE = "generatie-v9.1-multipage";
@@ -45,10 +49,34 @@ export async function processGenerateJob(
   // media-ingest.ts. Runs before the file list is read so freshly imported
   // images are part of it.
   const merkkleuren = vindMerkkleuren(lead.notities);
-  const geimporteerd = await ingestBriefingAfbeeldingen(supabase, leadId, lead.notities);
-  const { data: bestandRijenNa } = geimporteerd.length
-    ? await supabase.from("site_bestanden").select("bestandsnaam, omschrijving, content_type").eq("lead_id", leadId)
-    : { data: bestandRijen };
+  await ingestBriefingAfbeeldingen(supabase, leadId, lead.notities);
+
+  // An uploaded menu photo is only useful if its content is readable — see
+  // leesAangeleverdeAfbeeldingen. Cached per file, so a review loop that
+  // regenerates five times still only reads each picture once.
+  await leesAangeleverdeAfbeeldingen(supabase, leadId, async (base64, mediaType, prompt) => {
+    const client = createAnthropicClient();
+    const antwoord = await client.messages.create({
+      model: process.env.MODEL_KWALITEIT ?? "claude-opus-4-8",
+      max_tokens: 4000,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: mediaType as never, data: base64 } },
+            { type: "text", text: prompt },
+          ],
+        },
+      ],
+    });
+    const blok = antwoord.content.find((b) => b.type === "text");
+    return blok && blok.type === "text" ? blok.text : "";
+  });
+
+  const { data: bestandRijenNa } = await supabase
+    .from("site_bestanden")
+    .select("bestandsnaam, omschrijving, content_type, geextraheerde_tekst")
+    .eq("lead_id", leadId);
 
   // Downloads can only point at files that actually exist, so the list is both
   // an input to the prompt and a hard check in the builder — the generator
@@ -57,6 +85,7 @@ export async function processGenerateJob(
     bestandsnaam: string;
     omschrijving: string | null;
     content_type?: string | null;
+    geextraheerde_tekst?: string | null;
   }[];
   const bestanden = bestandLijst.map((b) => b.bestandsnaam);
   const isAfbeelding = (b: { bestandsnaam: string; content_type?: string | null }) =>
@@ -80,6 +109,18 @@ export async function processGenerateJob(
     bestandLijst.length
       ? "Verwijs nooit naar een bestand dat niet in bovenstaande lijst staat — de build weigert dat."
       : "Er zijn geen eigen bestanden of afbeeldingen voor deze klant — gebruik geen downloads-blok.",
+    // Transcribed uploads are the client's real product list, so they carry
+    // the same weight as the research summary — more, really, since a
+    // photographed menu came straight from the client.
+    ...bestandLijst
+      .filter((b) => (b.geextraheerde_tekst ?? "").trim().length > 0)
+      .map(
+        (b) =>
+          `Inhoud van de aangeleverde afbeelding ${b.bestandsnaam}, letterlijk overgenomen. Dit is ` +
+          `echte klantinformatie: neem ALLE items hieruit over op de site, met hun prijzen, en vul ` +
+          `niets aan uit eigen fantasie.
+${b.geextraheerde_tekst}`,
+      ),
     // A briefing that names hex colours is naming the client's actual brand,
     // which beats the generic sector palette every time.
     merkkleuren.length

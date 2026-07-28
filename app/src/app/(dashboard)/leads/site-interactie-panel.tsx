@@ -190,16 +190,30 @@ export function SiteInteractiePanel({ leadId }: { leadId: string }) {
             </h4>
             <p className="text-xs text-slate-400">
               De generator mag enkel naar deze bestanden linken. Voeg ze toe vóór je genereert.
+              Een foto van een menu of prijslijst wordt bij het genereren uitgelezen, zodat de
+              inhoud op de site komt.
             </p>
             {bestanden.length > 0 ? (
               <ul className="space-y-1">
                 {bestanden.map((bestand) => (
-                  <li key={bestand.id} className="flex items-center justify-between gap-2 text-xs">
+                  <li key={bestand.id} className="flex flex-wrap items-center justify-between gap-2 text-xs">
                     <span className="text-slate-700">
                       {bestand.bestandsnaam}
                       <span className="ml-2 text-slate-400">{bytesLabel(bestand.grootte_bytes)}</span>
                       {bestand.omschrijving ? (
                         <span className="ml-2 text-slate-400">— {bestand.omschrijving}</span>
+                      ) : null}
+                      {bestand.geextraheerde_tekst ? (
+                        <details className="mt-1 w-full text-slate-500">
+                          <summary className="cursor-pointer text-blue-600 hover:underline">
+                            Uitgelezen tekst ({bestand.geextraheerde_tekst.length} tekens) — controleer dit
+                          </summary>
+                          <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-2">
+                            {bestand.geextraheerde_tekst}
+                          </pre>
+                        </details>
+                      ) : bestand.tekst_geextraheerd_op ? (
+                        <span className="ml-2 text-slate-400">— geen tekst op gevonden</span>
                       ) : null}
                     </span>
                     <button

@@ -110,9 +110,14 @@ export async function ingestBriefingAfbeeldingen(
       const bestandsnaam = `${kandidaat.naam}.${EXTENSIE[type]}`;
       const opslagPad = `${leadId}/bestanden/${bestandsnaam}`;
 
+      // Remove first rather than relying on upsert. Observed on 2026-07-28:
+      // an upsert reported success but a subsequent download still returned
+      // the previous bytes, so a client who swapped their logo would keep
+      // seeing the old one with nothing to indicate why.
+      await supabase.storage.from("demos").remove([opslagPad]);
       const { error: uploadError } = await supabase.storage
         .from("demos")
-        .upload(opslagPad, bytes, { contentType: type, upsert: true });
+        .upload(opslagPad, bytes, { contentType: type });
       if (uploadError) {
         console.warn(`media-ingest: upload van ${bestandsnaam} mislukt: ${uploadError.message}`);
         continue;
@@ -190,6 +195,109 @@ export function vervangBestandsverwijzingen(html: string, beelden: Record<string
       return dataUri ? `${opening}${dataUri}` : volledig;
     },
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Reading uploaded images
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Cost guard: a lead with a dozen photos shouldn't run a dozen vision calls. */
+const MAX_TE_LEZEN = 4;
+
+const LEESBAAR_PATROON = /(menu|kaart|prijs|tarief|folder|brochure|flyer|aanbod|assortiment)/i;
+
+const LEES_PROMPT = `Je krijgt een foto die een klant heeft aangeleverd, meestal van een menukaart,
+prijslijst of folder. Transcribeer wat er letterlijk op staat, zo volledig mogelijk en in dezelfde
+taal als op de foto.
+
+Regels:
+- Neem ALLE items over, met hun prijzen en eventuele beschrijvingen. Sla niets over omdat het
+  onbelangrijk lijkt; dit is de productlijst waarmee de website gebouwd wordt.
+- PRIJZEN ZIJN VERPLICHT. Op een menukaart staat de prijs bijna altijd rechts uitgelijnd op
+  dezelfde regel als het item, soms met puntjes of veel witruimte ertussen. Die hoort bij dat
+  item — schrijf hem er pal achter, als "Item — € 4,20". Een item zonder prijs overnemen terwijl
+  er wel een op de foto staat, is de ergste fout die je hier kan maken. Staat er echt nergens een
+  prijs, laat het dan weg.
+- Behoud de groepering (bv. "Warme dranken", "Koude dranken") als kopjes.
+- Verzin NIETS. Kan je een woord of prijs niet met zekerheid lezen, zet er dan [onleesbaar]
+  achter in plaats van te gokken.
+- Is dit duidelijk geen menu/prijslijst/folder maar bijvoorbeeld een sfeerfoto of een logo,
+  antwoord dan exact: GEEN_TEKST`;
+
+/**
+ * Transcribes uploaded images so a photographed menu becomes usable content.
+ *
+ * Uploading a menu photo was already possible; it just ended up as a file the
+ * site could link to, while the generator still had no idea what the client
+ * actually sells. For MIKI TEA that showed up as invented products on the
+ * demo — the model had a "menu" page to fill and no menu.
+ *
+ * Results are cached on the row: the review loop can regenerate five times per
+ * lead and the picture doesn't change between them.
+ */
+export async function leesAangeleverdeAfbeeldingen(
+  supabase: SupabaseClient,
+  leadId: string,
+  leesAfbeelding: (base64: string, mediaType: string, prompt: string) => Promise<string>,
+): Promise<void> {
+  const { data: rijen } = await supabase
+    .from("site_bestanden")
+    .select("id, bestandsnaam, opslag_pad, content_type, omschrijving, geextraheerde_tekst")
+    .eq("lead_id", leadId);
+
+  const kandidaten = ((rijen ?? []) as {
+    id: string;
+    bestandsnaam: string;
+    opslag_pad: string;
+    content_type: string | null;
+    omschrijving: string | null;
+    geextraheerde_tekst: string | null;
+  }[])
+    .filter((r) => (r.content_type ?? "").startsWith("image/") && r.content_type !== "image/svg+xml")
+    // Already read, or obviously not worth reading: a logo has nothing to say.
+    .filter((r) => r.geextraheerde_tekst === null)
+    .filter((r) => !/^logo\./i.test(r.bestandsnaam))
+    // Anything the user labelled as a menu/price list first; then the rest,
+    // because a photo someone bothered to upload usually has a reason.
+    .sort((a, b) => {
+      const score = (r: typeof a) => (LEESBAAR_PATROON.test(`${r.bestandsnaam} ${r.omschrijving ?? ""}`) ? 0 : 1);
+      return score(a) - score(b);
+    })
+    .slice(0, MAX_TE_LEZEN);
+
+  for (const rij of kandidaten) {
+    try {
+      const { data } = await supabase.storage.from("demos").download(rij.opslag_pad);
+      if (!data) continue;
+      const bytes = Buffer.from(await data.arrayBuffer());
+      // Vision inputs are capped by the API; a phone photo can exceed it.
+      if (bytes.byteLength > 5 * 1024 * 1024) {
+        console.warn(`beeldlezer: ${rij.bestandsnaam} is te groot (${bytes.byteLength} bytes), overgeslagen`);
+        continue;
+      }
+
+      const tekst = (await leesAfbeelding(bytes.toString("base64"), rij.content_type!, LEES_PROMPT)).trim();
+      const bruikbaar = tekst && !/^GEEN_TEKST$/i.test(tekst);
+
+      await supabase
+        .from("site_bestanden")
+        .update({
+          // Store the empty result too, so a sfeerfoto isn't re-read on every
+          // single regeneration.
+          geextraheerde_tekst: bruikbaar ? tekst : "",
+          tekst_geextraheerd_op: new Date().toISOString(),
+        })
+        .eq("id", rij.id);
+
+      console.log(
+        bruikbaar
+          ? `beeldlezer: ${rij.bestandsnaam} gelezen (${tekst.length} tekens)`
+          : `beeldlezer: ${rij.bestandsnaam} bevat geen bruikbare tekst`,
+      );
+    } catch (err) {
+      console.warn(`beeldlezer: ${rij.bestandsnaam} mislukt: ${err instanceof Error ? err.message : err}`);
+    }
+  }
 }
 
 /** Hex colours a briefing names, so the generator uses the client's actual
