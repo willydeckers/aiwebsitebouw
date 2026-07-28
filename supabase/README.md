@@ -62,7 +62,11 @@ sections 2 (architecture), 6 (datamodel), and 7 (security/compliance).
 | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | gmail-oauth-exchange, send-email | From a Google Cloud OAuth client (see below). |
 | `GMAIL_TOKEN_ENCRYPTION_KEY` | gmail-oauth-exchange, send-email, track-and-serve | Base64, 32 random bytes (`openssl rand -base64 32`), generated once. |
 | `DEMO_HOSTING_URL` | send-email, track-and-serve | Same public base URL as `NEXT_PUBLIC_DEMO_HOSTING_URL` above, used server-side to build links. |
-| `SHOPIFY_PARTNER_ORGANIZATION_ID`, `SHOPIFY_PARTNER_ACCESS_TOKEN` | worker (shopify-build-job) | Shopify Partner API — dev-store creation. |
+| `SHOPIFY_PARTNER_ORGANIZATION_ID` | worker | Organisatie-id, moet in het Partner API-pad staan. Ook gebruikt om de juiste Partner Dashboard-URL te openen bij het aanmaken van een winkel. |
+| `SHOPIFY_PARTNER_ACCESS_TOKEN` | worker | Partner API-token. Let op: die API kan géén winkels aanmaken (enkel `appCreditCreate`); zie `worker/scripts/partner-api-status.ts`. |
+| `SHOPIFY_APP_CLIENT_ID`, `SHOPIFY_APP_CLIENT_SECRET` | chat-edit-shopify, shopify-staff-invite, worker | Van één app in het Shopify **Dev Dashboard**. Hiermee haalt de pipeline per winkel een Admin-token op via de client credentials grant. Custom apps kunnen sinds 2026-01-01 niet meer aangemaakt worden — dit is de enige overgebleven weg. |
+| `SHOPIFY_BROWSER_SESSIE_MAP` | worker | Map waar de Playwright-sessie van het Partner Dashboard bewaard wordt (standaard `.shopify-sessie`). Log daar één keer manueel in; daarna blijft de automatisering ingelogd. |
+| `TOKEN_ENCRYPTION_KEY` | alle functies die tokens opslaan | Vervangt de naam `GMAIL_TOKEN_ENCRYPTION_KEY` (die blijft werken). Zelfde formaat: base64, 32 bytes. |
 
 ## Gmail API (spec section 2/7 — per-user OAuth, not a shared token)
 

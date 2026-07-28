@@ -1,6 +1,7 @@
 import { createWorkerClient } from "./shared/supabase.js";
 import { processGenerateJob } from "./pipeline/generate-job.js";
 import { processResearchJob } from "./pipeline/research-job.js";
+import { processShopifyStoreAanmaakJob } from "./shopify/store-aanmaak-job.js";
 import { processReviewJob } from "./pipeline/review-job.js";
 import { processShopifyBuildJob } from "./pipeline/shopify-build-job.js";
 
@@ -17,7 +18,7 @@ async function claimNextJob() {
     .from("jobs")
     .select("id, lead_id, type")
     .eq("status", "wachtrij")
-    .in("type", ["research", "generatie", "review", "shopify_opbouw"])
+    .in("type", ["research", "generatie", "review", "shopify_opbouw", "shopify_store_aanmaak"])
     .order("aangemaakt_op", { ascending: true })
     .limit(1);
 
@@ -49,8 +50,14 @@ async function runJob(job: {
   pogingen: number;
   payload: { extraContext?: string; shopifyDomain?: string } | null;
 }) {
+  // A job parked on 'wacht_op_mens' is not hung — someone is being asked to
+  // solve a CAPTCHA. Timing it out from under them would be exactly wrong, so
+  // this checks the current status before declaring a timeout.
   const timeout = setTimeout(async () => {
-    await supabase.from("jobs").update({ status: "timeout" }).eq("id", job.id);
+    const { data } = await supabase.from("jobs").select("status").eq("id", job.id).maybeSingle();
+    if (data?.status === "bezig") {
+      await supabase.from("jobs").update({ status: "timeout" }).eq("id", job.id);
+    }
   }, JOB_TIMEOUT_MS);
 
   try {
@@ -64,6 +71,8 @@ async function runJob(job: {
       await processGenerateJob(supabase, job.id, job.lead_id, job.payload);
     } else if (job.type === "review") {
       await processReviewJob(supabase, job.id, job.lead_id);
+    } else if (job.type === "shopify_store_aanmaak") {
+      await processShopifyStoreAanmaakJob(supabase, job.id, job.lead_id);
     } else if (job.type === "shopify_opbouw") {
       await processShopifyBuildJob(supabase, job.id, job.lead_id, job.payload);
     } else {
@@ -90,5 +99,5 @@ async function pollLoop() {
   }
 }
 
-console.log("Worker gestart — pollt jobs (research, generatie, review, shopify_opbouw) elke 5s.");
+console.log("Worker gestart — pollt jobs (research, generatie, review, shopify_opbouw, shopify_store_aanmaak) elke 5s.");
 pollLoop();

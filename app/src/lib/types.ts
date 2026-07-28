@@ -118,10 +118,28 @@ export type ReviewLogEntry = {
   timestamp: string;
 };
 
-export const JOB_STATUSES = ["wachtrij", "bezig", "klaar", "mislukt", "timeout", "geannuleerd"] as const;
+// "wacht_op_mens": the browser automation hit a CAPTCHA/2FA and paused for a
+// person. Deliberately not "mislukt" (nothing is broken) and not "bezig"
+// (nothing is progressing) — see the store-creation job.
+export const JOB_STATUSES = [
+  "wachtrij",
+  "bezig",
+  "wacht_op_mens",
+  "klaar",
+  "mislukt",
+  "timeout",
+  "geannuleerd",
+] as const;
 export type JobStatus = (typeof JOB_STATUSES)[number];
 
-export const JOB_TYPES = ["research", "generatie", "review", "shopify_opbouw", "sourcing_run"] as const;
+export const JOB_TYPES = [
+  "research",
+  "generatie",
+  "review",
+  "shopify_store_aanmaak",
+  "shopify_opbouw",
+  "sourcing_run",
+] as const;
 export type JobType = (typeof JOB_TYPES)[number];
 
 export type Job = {

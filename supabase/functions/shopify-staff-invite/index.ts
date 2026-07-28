@@ -25,13 +25,13 @@ Deno.serve(async (req) => {
 
     const { data: klant, error } = await supabase
       .from("klanten")
-      .select("id, type, shopify_domain, shopify_access_token, lead:leads(contact_email)")
+      .select("id, type, lead_id, shopify_domain, lead:leads(contact_email)")
       .eq("id", klantId)
       .single();
 
     if (error || !klant) throw new Error(`Klant niet gevonden: ${error?.message}`);
     if (klant.type !== "shopify") throw new Error("Staff-uitnodigingen zijn enkel voor shopify-klanten.");
-    if (!klant.shopify_domain || !klant.shopify_access_token) {
+    if (!klant.shopify_domain) {
       throw new Error("Shopify-koppeling ontbreekt nog voor deze klant.");
     }
 

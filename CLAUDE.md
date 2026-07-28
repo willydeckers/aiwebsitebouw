@@ -418,6 +418,58 @@ moet manueel aangemaakt worden. De Shopify-connector die in deze omgeving hangt,
 `chat-edit-shopify` en de rate limiter ongetest. Dit is het enige punt van de lijst dat open
 staat, en het hangt op een account, niet op code.
 
+## 2026-07-29 — Shopify store-aanmaak via browserautomatisering + echte tokens
+
+**Waarom UI-automatisering.** Er is geen API om een winkel aan te maken. Dat is nu drie keer
+tegen het levende schema gecontroleerd (`developmentStoreCreate`, `devStoreCreate`,
+`storeCreate`, `shopCreate` — allemaal "doesn't exist on type 'MutationRoot'"). De Partner API
+heeft op 2026-01 één mutation (`appCreditCreate`) en vier queryvelden, waarvan geen enkel
+winkels teruggeeft. Hercontroleer met `worker/scripts/partner-api-status.ts`.
+
+- **`worker/src/shopify/`** — nieuwe map. `store-flow-config.ts` bevat élke selector, URL en
+  veldnaam; dat is bewust het enige bestand dat je moet openen als Shopify z'n signup-flow
+  wijzigt. Elke stap heeft meerdere kandidaat-selectors (data-attribuut → rol+naam → tekst),
+  omdat klassenamen bij elke deploy veranderen.
+- **`live-browser.ts` is generiek en herbruikbaar** — weet niets van Shopify. Persistente
+  context (blijft ingelogd), niet-headless, en een JPEG-stream via Storage die de app als
+  `<canvas>` toont. Bewust geen WebSocket/WebRTC: dit hergebruikt transport dat er al is.
+- **Mens-in-de-lus.** Bij CAPTCHA/2FA/onbekend scherm gaat de job naar de nieuwe jobstatus
+  `wacht_op_mens`, niet naar `mislukt` (er is niets stuk) en niet naar `bezig` (er gebeurt
+  niets). De UI toont "actie vereist" + live beeld; jij lost het op in het echte venster en
+  klikt Hervatten. **De automatisering typt nooit wachtwoorden en lost nooit zelf een CAPTCHA
+  op** — dat is de enige manier die én toelaatbaar én duurzaam is.
+- **De statustrigger moest mee.** `bezig → wacht_op_mens` werd geweigerd door
+  `enforce_job_status_transition`; ontdekt door de overgang te próberen in plaats van aan te
+  nemen dat een nieuwe enum-waarde volstaat. Migratie `20260729010000`.
+- **De 15-minutentimeout in de worker checkt nu de status** voor hij toeslaat, anders wordt een
+  job die op een mens wacht onder diens handen weggetimeout.
+
+**Tokens: custom apps bestaan niet meer.** Shopify heeft ze op 2026-01-01 afgevoerd ("you can
+no longer create new legacy custom apps"), en ze waren sowieso nooit via de Admin API aan te
+maken. De vervanger is de **client credentials grant**: één app in het Dev Dashboard, per winkel
+geïnstalleerd, tokens programmatisch opgehaald. Gevolg voor het schema: die tokens leven 24 uur,
+dus het duurzame geheim is de `client_secret` in de omgeving en wat per winkel in
+`shopify_stores` staat is een versleutelde, kortlevende cache. Dat is beter dan een permanente
+credential per winkel — een gelekte rij is binnen een dag waardeloos.
+
+- `klanten.shopify_access_token` (plaintext `text`, sinds het eerste schema, nooit gevuld) is
+  **gedropt**. `chat-edit-shopify` en `shopify-staff-invite` halen hun token nu via
+  `_shared/shopify-token.ts`. Scopes bewust beperkt tot themes/producten/content — geen orders,
+  geen klantgegevens.
+- `crypto.ts` leest nu `TOKEN_ENCRYPTION_KEY` met terugval op `GMAIL_TOKEN_ENCRYPTION_KEY`.
+
+**Niet geverifieerd, en niet verifieerbaar door mij:** de selectors zijn geschreven tegen wat
+het Partner Dashboard hoort te tonen, maar de flow is nooit end-to-end gedraaid — dat vereist
+inloggen op het Partner-account (wachtwoord) en zou echte winkels aanmaken. Reken op één ronde
+selector-bijstellen bij de eerste echte run; daarvoor bestaan het stappenlog en de screenshot
+bij elke mislukte stap. Ook ongetest: de client credentials grant zelf, want er is nog geen app
+in het Dev Dashboard en geen winkel om ze op te installeren.
+
+**Juridische kanttekening die de gebruiker moet wegen:** geautomatiseerd door het Partner
+Dashboard klikken staat vermoedelijk op gespannen voet met de Partner Program Agreement. Het
+risico is niet een gefaalde job maar schorsing van het Partner-account, met alle klantwinkels
+eraan.
+
 ## Known gaps (deliberate, not oversights)
 
 - **KBO Open Data import script doesn't exist.** `sourcing-run` reads from a

@@ -21,6 +21,7 @@ import { CostSummaryView } from "./cost-summary-view";
 import { DeleteLeadButton } from "./delete-lead-button";
 import { VersionHistory } from "./version-history";
 import { SiteInteractiePanel } from "./site-interactie-panel";
+import { StoreAanmaakPanel } from "./store-aanmaak-panel";
 
 export function LeadDetailPanel({
   lead,
@@ -116,6 +117,14 @@ export function LeadDetailPanel({
   }, [lead.id]);
 
   const jobLoopt = latestJob?.status === "bezig" || latestJob?.status === "wachtrij";
+
+  // While the browser automation is running — or parked waiting for someone to
+  // clear a CAPTCHA — every other action on this lead is disabled. The DB
+  // constraint only stops a second job of the SAME type; this is what stops
+  // someone regenerating a site out from under a half-created store.
+  const storeAutomatiseringBezig =
+    latestJob?.type === "shopify_store_aanmaak" &&
+    ["wachtrij", "bezig", "wacht_op_mens"].includes(latestJob.status);
 
   useEffect(() => {
     if (!jobLoopt) return;
@@ -421,11 +430,20 @@ export function LeadDetailPanel({
 
         <SiteInteractiePanel leadId={lead.id} />
 
+        <StoreAanmaakPanel leadId={lead.id} klantType={lead.klant_type} onChanged={onChanged} />
+
         {costSummary ? <CostSummaryView summary={costSummary} /> : null}
 
         <section className="mt-6 space-y-2">
+          {storeAutomatiseringBezig ? (
+            <p className="mb-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              Er loopt een Shopify-winkelaanmaak voor deze lead. Andere acties staan zolang uit,
+              zodat er niets tussendoor verandert.
+            </p>
+          ) : null}
           <PipelineButton
             leadId={lead.id}
+            geblokkeerd={storeAutomatiseringBezig}
             duurSchattingen={duurSchattingen}
             alreadyResearched={pipelineIndex > LEAD_PIPELINE.indexOf("research") || !!lead.research_samenvatting || !!lead.open_vragen}
             alreadyGenerated={siteVersions.length > 0}

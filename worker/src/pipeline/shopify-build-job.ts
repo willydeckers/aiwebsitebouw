@@ -52,7 +52,19 @@ export async function processShopifyBuildJob(
   // The store is created by hand in the Partner Dashboard and its domain
   // passed in here — see createDevelopmentStore for why there is no API to do
   // it for us. Everything after this point is the part that IS automatable.
-  const domain = payload?.shopifyDomain?.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "");
+  let domain = payload?.shopifyDomain?.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "");
+
+  // A store created by the browser-automation job already recorded its domain,
+  // so it doesn't have to be typed in again.
+  if (!domain) {
+    const { data: store } = await supabase
+      .from("shopify_stores")
+      .select("shop_domein")
+      .eq("lead_id", leadId)
+      .maybeSingle();
+    domain = store?.shop_domein ?? undefined;
+  }
+
   if (!domain) {
     await createDevelopmentStore(); // throws with the explanation
   }

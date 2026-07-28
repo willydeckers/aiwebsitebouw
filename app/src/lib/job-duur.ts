@@ -21,6 +21,10 @@ const STANDAARD_SECONDEN: Record<JobType, number> = {
   // the happy path, not a promise.
   review: 240,
   shopify_opbouw: 20,
+  // Browser automation through Shopify's signup flow. Wall-clock only —
+  // the median will be dominated by however long a human takes to clear a
+  // CAPTCHA, so treat this figure as "if nothing interrupts it".
+  shopify_store_aanmaak: 90,
   sourcing_run: 30,
 };
 

@@ -3,6 +3,7 @@ import { handleCorsPreflight, corsHeaders } from "../_shared/cors.ts";
 import { requireUser } from "../_shared/supabase-clients.ts";
 import { createAnthropicClient, calculateKostEur } from "../_shared/anthropic.ts";
 import { shopifyAdminGraphQL } from "../_shared/shopify.ts";
+import { getShopifyToken } from "../_shared/shopify-token.ts";
 
 const MODEL = Deno.env.get("MODEL_KWALITEIT") ?? "claude-opus-4-8";
 const PROMPT_VERSIE = "chat-edit-shopify-v9.0";
@@ -37,14 +38,15 @@ Deno.serve(async (req) => {
 
     const { data: klant, error: klantError } = await supabase
       .from("klanten")
-      .select("id, lead_id, shopify_domain, shopify_access_token")
+      .select("id, lead_id")
       .eq("id", klantId)
       .single();
 
     if (klantError || !klant) throw new Error(`Klant niet gevonden: ${klantError?.message}`);
-    if (!klant.shopify_domain || !klant.shopify_access_token) {
-      throw new Error("Shopify-koppeling ontbreekt nog voor deze klant.");
-    }
+
+    // Minted on demand rather than read from a column: client-credentials
+    // tokens live 24 hours, so there is no long-lived token to store.
+    const { shopDomein, token } = await getShopifyToken(supabase, klant.lead_id);
 
     const client = createAnthropicClient();
     let tokensIn = 0;
@@ -82,8 +84,8 @@ Deno.serve(async (req) => {
         const input = block.input as { query: string; variables?: Record<string, unknown> };
         try {
           const result = await shopifyAdminGraphQL(
-            klant.shopify_domain,
-            klant.shopify_access_token,
+            shopDomein,
+            token,
             input.query,
             input.variables ?? {},
           );

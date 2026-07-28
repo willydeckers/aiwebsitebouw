@@ -19,6 +19,7 @@ export function PipelineButton({
   alreadyGenerated,
   reviewHandled,
   duurSchattingen,
+  geblokkeerd = false,
   onChanged,
 }: {
   leadId: string;
@@ -26,6 +27,8 @@ export function PipelineButton({
   alreadyGenerated: boolean;
   reviewHandled: boolean;
   duurSchattingen: DuurSchattingen;
+  /** Another job holds this lead — see lead-detail-panel. */
+  geblokkeerd?: boolean;
   onChanged: () => void;
 }) {
   const [error, setError] = useState<string | null>(null);
@@ -89,7 +92,7 @@ export function PipelineButton({
       <button
         type="button"
         onClick={handleClick}
-        disabled={pending || alreadyDone}
+        disabled={pending || alreadyDone || geblokkeerd}
         title="Doorloopt research (3.2) → generatie (3.3) → review-loop (3.4) automatisch; slaat stappen over die al gebeurd zijn."
         className="w-full rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-md shadow-blue-300/50 transition hover:bg-blue-500 disabled:opacity-50"
       >

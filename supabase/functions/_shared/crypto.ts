@@ -4,8 +4,12 @@
 // (e.g. `openssl rand -base64 32`) and stored as an Edge Function secret.
 
 async function getKey(): Promise<CryptoKey> {
-  const keyB64 = Deno.env.get("GMAIL_TOKEN_ENCRYPTION_KEY");
-  if (!keyB64) throw new Error("GMAIL_TOKEN_ENCRYPTION_KEY ontbreekt.");
+  // Now also used for Shopify access tokens, so the Gmail-specific name is a
+  // misnomer. TOKEN_ENCRYPTION_KEY is the name going forward; the old one is
+  // still read so an existing deployment keeps decrypting what it wrote.
+  const keyB64 =
+    Deno.env.get("TOKEN_ENCRYPTION_KEY") ?? Deno.env.get("GMAIL_TOKEN_ENCRYPTION_KEY");
+  if (!keyB64) throw new Error("TOKEN_ENCRYPTION_KEY (of GMAIL_TOKEN_ENCRYPTION_KEY) ontbreekt.");
   const raw = Uint8Array.from(atob(keyB64), (c) => c.charCodeAt(0));
   return crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]);
 }
