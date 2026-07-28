@@ -40,3 +40,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Playwright e2e — artefacten en de gemunte sessie (bevat een token)
+/test-results
+/playwright-report
+/e2e/.auth

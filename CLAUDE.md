@@ -507,9 +507,22 @@ eraan.
   geheugen te beweren. Wat dus open blijft: er is nog geen development store mét Admin-token, en
   die moet manueel aangemaakt worden; `chat-edit-shopify` en de rate limiter zijn daardoor nog
   niet tegen een levende winkel gedraaid.
-- **No E2E test exists yet.** Playwright is a dependency in both `app/` and `worker/`
-  already; `app/e2e/critical-path.spec.ts` (lead created → job triggered → Realtime status
-  change) still needs writing, and needs a real test Supabase project to run against.
+- ~~**No E2E test exists yet.**~~ Gebouwd op 2026-07-29: `app/e2e/critical-path.spec.ts`,
+  4 tests, **groen tegen het echte project** (`cd app && npm run e2e`). Dekt: lead verschijnt
+  in de lijst → paneel opent → klik op het geblurde deel sluit → een job die tijdens het kijken
+  wordt ingestoken verschijnt via Realtime → een mislukte job toont zijn échte foutmelding
+  (regressietest voor de "non-2xx status code"-bug van juli) → Voorkeuren toont de regels die
+  elke generatie sturen. Maakt en verwijdert zijn eigen leads (prefix `E2E-test `).
+  - Inloggen gebeurt **zonder wachtwoord**: `global-setup.ts` munt met de service-role-key een
+    magic link en schrijft de sessie als cookie. Let op — twee voor de hand liggende aanpakken
+    werken NIET en zijn allebei geprobeerd: localStorage (deze app gebruikt `@supabase/ssr`,
+    dat bewust in cookies opslaat) en de verify-URL in de browser volgen (kwam terug zonder
+    fragment én zonder cookies). Het cookieformaat is overgenomen uit de geïnstalleerde
+    `@supabase/ssr` (`base64-`-prefix, base64url, chunks van 3180), niet gegokt.
+  - Draait niet zomaar: `app/.env.local` heeft een **lege** `SUPABASE_SERVICE_ROLE_KEY`. Geef
+    hem mee uit `worker/.env` of vul hem in.
+  - Draait bewust géén research/generatie/review: die kosten echt geld per run en vragen de
+    worker. Jobs worden rechtstreeks ingestoken; wat getest wordt is hoe de app erop reageert.
 - **Version-history UI (`app/src/app/(dashboard)/leads/version-history.tsx`) is untested
   in a real browser.** The underlying DB constraints it relies on are verified; the UI
   interactions (create/view/activate/revert) haven't been clicked through live.
