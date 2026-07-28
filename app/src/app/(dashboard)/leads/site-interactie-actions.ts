@@ -47,6 +47,47 @@ export async function fetchBestanden(leadId: string): Promise<SiteBestand[]> {
 
 const MAX_BESTAND_BYTES = 25 * 1024 * 1024;
 
+/**
+ * Uploads a file and, when it's an image, reads it straight away so a menu
+ * photo is usable immediately instead of only at the next generation.
+ * Returns the transcription (or null) alongside any error.
+ */
+export async function uploadEnLees(
+  leadId: string,
+  file: File,
+  omschrijving: string,
+): Promise<{ error: string | null; bestandsnaam?: string; tekst?: string | null }> {
+  const fout = await uploadBestand(leadId, file, omschrijving);
+  if (fout) return { error: fout };
+
+  const supabase = createClient();
+  const { data: rij } = await supabase
+    .from("site_bestanden")
+    .select("id, bestandsnaam, content_type")
+    .eq("lead_id", leadId)
+    .order("aangemaakt_op", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!rij || !(rij.content_type ?? "").startsWith("image/")) {
+    return { error: null, bestandsnaam: rij?.bestandsnaam, tekst: null };
+  }
+
+  const { data, error } = await supabase.functions.invoke("lees-afbeelding", {
+    body: { bestandId: rij.id },
+  });
+  if (error) {
+    // The file is uploaded and usable either way; the worker reads it during
+    // generation. Only the instant feedback is lost.
+    return {
+      error: null,
+      bestandsnaam: rij.bestandsnaam,
+      tekst: null,
+    };
+  }
+  return { error: null, bestandsnaam: rij.bestandsnaam, tekst: (data?.tekst as string | null) ?? null };
+}
+
 export async function uploadBestand(
   leadId: string,
   file: File,

@@ -68,7 +68,11 @@ export function UiPresetsPanel() {
 
   return (
     <section className="mt-6 max-w-md space-y-3 rounded-3xl border border-white/60 bg-white/70 p-6 shadow-xl shadow-blue-200/40 backdrop-blur-xl">
-      <h2 className="text-sm font-medium text-slate-700">UI-presets (spec sectie 5/6)</h2>
+      <h2 className="text-sm font-medium text-slate-700">Kleuren van dit dashboard</h2>
+      <p className="text-sm text-slate-600">
+        Enkel het uiterlijk van dit programma zelf, voor jou persoonlijk. Dit heeft geen enkele
+        invloed op de websites die je genereert — daarvoor zijn de stijlvoorkeuren hierboven.
+      </p>
 
       {presets.length > 0 ? (
         <ul className="space-y-1">

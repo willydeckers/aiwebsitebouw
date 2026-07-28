@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import type { Lead, ReviewLogEntry, SiteVersion } from "@/lib/types";
 import { startGeneration } from "./generate-actions";
 import { startPatchEdit } from "./patch-actions";
 import { fetchDemoSite, type DemoSite } from "./version-actions";
+import { uploadEnLees } from "./site-interactie-actions";
 import {
   bouwPreviewDocument,
   PREVIEW_NAVIGATIE_BERICHT,
@@ -36,7 +37,8 @@ export function DemoPreview({
   onChanged: () => void;
 }) {
   const [viewport, setViewport] = useState<Viewport>("desktop");
-  const [extraInstructies, setExtraInstructies] = useState("");
+  const bestandInput = useRef<HTMLInputElement>(null);
+  const [uploadPending, startUploadTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -102,14 +104,54 @@ export function DemoPreview({
 
   function handleRegenerate() {
     setError(null);
+    const instructie = chatInput.trim();
     startTransition(async () => {
-      const result = await startGeneration(lead.id, extraInstructies || undefined);
+      const result = await startGeneration(lead.id, instructie || undefined);
       if (result) {
         setError(result);
-      } else {
-        setExtraInstructies("");
-        onChanged();
+        return;
       }
+      if (instructie) {
+        setChatInput("");
+        setChatMessages((prev) => [
+          ...prev,
+          { role: "user", text: instructie },
+          { role: "systeem", text: "Hele site wordt opnieuw gegenereerd met deze instructie." },
+        ]);
+      }
+      onChanged();
+    });
+  }
+
+  // Uploading from the chat box rather than a separate panel: adding a menu
+  // photo IS a change to the site, so it belongs in the same place as "die
+  // kleur moet anders". The transcription comes back as a chat reply so it
+  // can be checked immediately — it is OCR of a photo, not gospel.
+  function handleUpload(file: File) {
+    setError(null);
+    setChatMessages((prev) => [...prev, { role: "user", text: `Bestand toegevoegd: ${file.name}` }]);
+    if (bestandInput.current) bestandInput.current.value = "";
+
+    startUploadTransition(async () => {
+      const resultaat = await uploadEnLees(lead.id, file, "");
+      if (resultaat.error) {
+        setChatMessages((prev) => [...prev, { role: "systeem", text: resultaat.error! }]);
+        return;
+      }
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          role: "systeem",
+          text: resultaat.tekst
+            ? `Uitgelezen uit ${resultaat.bestandsnaam}:
+
+${resultaat.tekst}
+
+Klopt dit? Genereer opnieuw om het op de site te zetten.`
+            : `${resultaat.bestandsnaam} staat klaar. Er stond geen leesbare tekst op, dus dit wordt als afbeelding gebruikt. Genereer opnieuw om het op de site te zetten.`,
+        },
+      ]);
+      onChanged();
     });
   }
 
@@ -201,25 +243,32 @@ export function DemoPreview({
         </div>
       ) : null}
 
+      {/* Everything that changes the site happens here: one input, so there's
+          never a question of which box an instruction belongs in. */}
       <div className="space-y-1">
-        <h4 className="text-xs font-medium text-slate-500">Chat-based bewerken (3.5)</h4>
+        <h4 className="text-xs font-medium text-slate-500">
+          Aanpassen — typ hier wat er moet veranderen (3.5)
+        </h4>
 
-        {chatMessages.length > 0 || chatPending ? (
+        {chatMessages.length > 0 || chatPending || uploadPending ? (
           <ul className="max-h-40 space-y-1 overflow-y-auto rounded-xl border border-blue-100 p-2 text-xs">
             {chatMessages.map((msg, i) => (
-              <li key={i} className={msg.role === "user" ? "text-slate-800" : "text-slate-500"}>
+              <li
+                key={i}
+                className={`whitespace-pre-wrap ${msg.role === "user" ? "text-slate-800" : "text-slate-500"}`}
+              >
                 <span className="font-medium">{msg.role === "user" ? "Jij: " : "AI: "}</span>
                 {msg.text}
               </li>
             ))}
-            {chatPending ? (
+            {chatPending || uploadPending ? (
               <li className="flex items-center gap-1.5 text-slate-400">
                 <span className="flex gap-0.5">
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:-0.3s]" />
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:-0.15s]" />
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" />
                 </span>
-                aan het verwerken...
+                {uploadPending ? "bestand uitlezen..." : "aan het verwerken..."}
               </li>
             ) : null}
           </ul>
@@ -227,45 +276,57 @@ export function DemoPreview({
 
         <div className="flex gap-2">
           <input
+            ref={bestandInput}
+            type="file"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleUpload(file);
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => bestandInput.current?.click()}
+            disabled={chatPending || uploadPending}
+            title="Voeg een foto of document toe: een menukaart of prijslijst wordt uitgelezen, een gewone foto komt op de site."
+            aria-label="Bestand toevoegen"
+            className="rounded-xl border border-blue-200 px-3 py-2 text-sm text-slate-600 hover:bg-blue-50 disabled:opacity-50"
+          >
+            +
+          </button>
+          <input
             id="chatbox"
             value={chatInput}
             onChange={(e) => setChatInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") handleSendChat();
             }}
-            placeholder="bv. die kleur moet anders"
+            placeholder="bv. die kleur moet anders — of voeg links een menukaart toe"
             className="flex-1 rounded-xl border border-blue-200 px-3 py-2 text-sm outline-none text-slate-900 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
           />
           <button
             type="button"
             onClick={handleSendChat}
-            disabled={chatPending}
+            disabled={chatPending || uploadPending}
             className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             {chatPending ? "Bezig..." : "Verstuur"}
           </button>
         </div>
-      </div>
 
-      <div className="space-y-1">
-        <label htmlFor="extra-instructies" className="text-xs font-medium text-slate-500">
-          Opnieuw genereren met extra instructies
-        </label>
-        <textarea
-          id="extra-instructies"
-          value={extraInstructies}
-          onChange={(e) => setExtraInstructies(e.target.value)}
-          rows={2}
-          placeholder="bv. gebruik een lichtere achtergrondkleur"
-          className="w-full rounded-xl border border-blue-200 px-3 py-2 text-sm outline-none text-slate-900 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
-        />
+        {/* Same text, bigger hammer: a patch edit changes what you asked for,
+            a regeneration rebuilds the whole site with it as guidance. */}
         <button
           type="button"
           onClick={handleRegenerate}
-          disabled={pending}
-          className="w-full rounded-xl border border-blue-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-blue-50 disabled:opacity-50"
+          disabled={pending || chatPending || uploadPending}
+          className="w-full rounded-xl border border-blue-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-blue-50 disabled:opacity-50"
         >
-          {pending ? "Bezig..." : "Opnieuw genereren met extra instructies"}
+          {pending
+            ? "Bezig..."
+            : chatInput.trim()
+              ? "Of: hele site opnieuw genereren met deze instructie"
+              : "Of: hele site opnieuw genereren"}
         </button>
         {error ? <p className="text-xs text-red-600">{error}</p> : null}
       </div>

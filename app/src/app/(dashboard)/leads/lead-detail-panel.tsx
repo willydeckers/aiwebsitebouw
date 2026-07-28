@@ -123,6 +123,14 @@ export function LeadDetailPanel({
     return () => clearInterval(timer);
   }, [jobLoopt]);
 
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   async function handleBlur() {
     if (notities === (lead.notities ?? "")) return;
     setSaving(true);
@@ -178,8 +186,18 @@ export function LeadDetailPanel({
     actieveVersion && demoHostingBase ? `${demoHostingBase}/${lead.id}/` : null;
 
   return (
-    <div className="fixed inset-0 z-10 flex justify-end bg-slate-900/20 backdrop-blur-sm">
+    // Clicking the blurred area beside the panel closes it — that's what the
+    // dimmed backdrop reads as, and it's the fastest way back to the list.
+    // Escape does the same, for anyone who never reaches for the mouse.
+    <div
+      className="fixed inset-0 z-10 flex justify-end bg-slate-900/20 backdrop-blur-sm"
+      onClick={onClose}
+      role="presentation"
+    >
       <div
+        // Clicks inside the panel must not bubble up to the backdrop above,
+        // or every button in here would also close the panel.
+        onClick={(e) => e.stopPropagation()}
         className={`h-full w-full overflow-y-auto border-l border-white/60 bg-white/95 p-6 shadow-xl shadow-blue-200/40 backdrop-blur-xl ${
           latestVersion ? "max-w-3xl" : "max-w-md"
         }`}

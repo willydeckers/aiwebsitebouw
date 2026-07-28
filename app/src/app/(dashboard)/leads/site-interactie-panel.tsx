@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import type { SiteBestand, SiteInzending, SiteToegang } from "@/lib/types";
 import {
   clearToegangscode,
@@ -11,7 +11,6 @@ import {
   fetchToegang,
   setInzendingStatus,
   setToegangscode,
-  uploadBestand,
 } from "./site-interactie-actions";
 
 const SOORT_LABEL: Record<SiteInzending["soort"], string> = {
@@ -43,8 +42,6 @@ export function SiteInteractiePanel({ leadId }: { leadId: string }) {
 
   const [code, setCode] = useState("");
   const [hint, setHint] = useState("");
-  const [omschrijving, setOmschrijving] = useState("");
-  const bestandInput = useRef<HTMLInputElement>(null);
 
   function herlaad() {
     startTransition(async () => {
@@ -189,11 +186,13 @@ export function SiteInteractiePanel({ leadId }: { leadId: string }) {
               Downloadbare bestanden
             </h4>
             <p className="text-xs text-slate-400">
-              De generator mag enkel naar deze bestanden linken. Voeg ze toe vóór je genereert.
-              Een foto van een menu of prijslijst wordt bij het genereren uitgelezen, zodat de
-              inhoud op de site komt.
+              Toevoegen doe je met de <span className="font-medium">+</span>-knop in de chatbox bij
+              de demo-preview — een menukaart wordt daar meteen uitgelezen zodat je kan nakijken
+              wat eruit komt. Hieronder staat wat er al is.
             </p>
-            {bestanden.length > 0 ? (
+            {bestanden.length === 0 ? (
+              <p className="text-xs text-slate-400">Nog geen bestanden voor deze lead.</p>
+            ) : (
               <ul className="space-y-1">
                 {bestanden.map((bestand) => (
                   <li key={bestand.id} className="flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -227,42 +226,7 @@ export function SiteInteractiePanel({ leadId }: { leadId: string }) {
                   </li>
                 ))}
               </ul>
-            ) : null}
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                ref={bestandInput}
-                type="file"
-                className="text-xs text-slate-600 file:mr-2 file:rounded-lg file:border-0 file:bg-blue-50 file:px-2 file:py-1 file:text-blue-700"
-              />
-              <input
-                value={omschrijving}
-                onChange={(e) => setOmschrijving(e.target.value)}
-                placeholder="Korte omschrijving (optioneel)"
-                className="flex-1 rounded-xl border border-blue-200 px-2 py-1 text-xs text-slate-900 outline-none focus:border-blue-400"
-              />
-              <button
-                type="button"
-                disabled={pending}
-                onClick={() => {
-                  const file = bestandInput.current?.files?.[0];
-                  if (!file) {
-                    setError("Kies eerst een bestand.");
-                    return;
-                  }
-                  doe(async () => {
-                    const fout = await uploadBestand(leadId, file, omschrijving);
-                    if (!fout) {
-                      setOmschrijving("");
-                      if (bestandInput.current) bestandInput.current.value = "";
-                    }
-                    return fout;
-                  });
-                }}
-                className="rounded-xl bg-blue-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
-              >
-                Uploaden
-              </button>
-            </div>
+            )}
           </div>
 
           {/* ── Toegangscode ──────────────────────────────────────────── */}

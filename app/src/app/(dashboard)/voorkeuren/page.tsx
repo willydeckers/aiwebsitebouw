@@ -8,6 +8,7 @@ import {
   type GmailKoppeling,
 } from "./gmail-actions";
 import { UiPresetsPanel } from "./ui-presets-panel";
+import { AiRegelsPanel } from "./ai-regels-panel";
 
 const STATUS_LABELS: Record<GmailKoppeling["status"], string> = {
   actief: "Gekoppeld",
@@ -42,9 +43,16 @@ export default function VoorkeurenPage() {
   return (
     <div>
       <h1 className="text-lg font-semibold text-slate-900">Voorkeuren</h1>
+      <p className="mt-1 max-w-3xl text-sm text-slate-600">
+        Instellingen die over álle leads gaan. Wat één klant betreft, regel je bij die lead zelf.
+      </p>
 
-      <section className="mt-6 max-w-md space-y-2 rounded-3xl border border-white/60 bg-white/70 p-6 shadow-xl shadow-blue-200/40 backdrop-blur-xl">
-        <h2 className="text-sm font-medium text-slate-700">Gmail-koppeling (spec 2/7)</h2>
+      <section className="mt-6 max-w-3xl space-y-2 rounded-3xl border border-white/60 bg-white/70 p-6 shadow-xl shadow-blue-200/40 backdrop-blur-xl">
+        <h2 className="text-sm font-medium text-slate-700">Gmail-koppeling</h2>
+        <p className="text-sm text-slate-600">
+          Nodig om demo&apos;s naar leads te versturen. De mail vertrekt vanaf jouw eigen
+          Gmail-adres, dus dit moet per gebruiker apart gekoppeld worden.
+        </p>
         <p className="text-sm text-slate-600">
           Status: {koppeling ? STATUS_LABELS[koppeling.status] : "Laden..."}
         </p>
@@ -76,11 +84,9 @@ export default function VoorkeurenPage() {
         )}
       </section>
 
-      <UiPresetsPanel />
+      <AiRegelsPanel />
 
-      <p className="mt-6 text-sm text-slate-500">
-        Tabs Stijlvoorkeuren / Sectorkennis volgen (spec sectie 4.9).
-      </p>
+      <UiPresetsPanel />
     </div>
   );
 }
