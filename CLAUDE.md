@@ -380,6 +380,44 @@ directe CDN-afbeeldings-URL (wordt binnengehaald), de profiel-URL als community-
 wat de gebruiker zelf in de notities zet. Menu's moeten dus als tekst in de briefing of als
 upload via het Site-interactie-paneel komen.
 
+## 2026-07-28 — de uitgestelde featurelijst afgewerkt + live geverifieerd
+
+De negen punten die in de meerpagina-opdracht expliciet waren uitgesteld ("bouw dit NIET nu"),
+met hun echte status. Acht zijn gebouwd, één is geblokkeerd op iets dat niet bestaat.
+
+| Feature | Status |
+|---|---|
+| FAQ-accordion | gebouwd, in browser gedraaid |
+| Tabs | gebouwd, in browser gedraaid (klik + pijltjestoetsen + focus) |
+| Interactieve quizzes | gebouwd, in browser gedraaid (score, geen dubbel antwoorden) |
+| Video-integratie | gebouwd, click-to-load geverifieerd: 0 externe requests vóór de klik |
+| Community-integratie | gebouwd (links uit research, geen runtime nodig) |
+| Hiërarchische opbouw | gebouwd, in browser gedraaid (kruimelpad, ouder-markering) |
+| Downloadbare bestanden | gebouwd, live geserveerd (200, inline voor beelden) |
+| Formulieren en reviews | gebouwd, **live geverifieerd** (zie hieronder) |
+| Gated content / login | gebouwd, **live geverifieerd** (zie hieronder) |
+| E-commerce end-to-end test | **geblokkeerd** — zie onderaan |
+
+**Live tegen de gedeployde `track-and-serve` (2026-07-28):**
+- Formulier: gewone inzending 200 + opgeslagen; honeypot ingevuld → 200 maar niets opgeslagen
+  (een bot mag niet leren dat hij herkend is); zonder bericht → 400; rate limit slaat toe op de
+  6e inzending per uur per afzender → 429.
+- Reviews: `GET /{leadId}/reviews` gaf `[]` zolang de review op `nieuw` stond, en pas ná
+  goedkeuring in de app de review zelf. Moderatie werkt dus echt, een ingediende review komt
+  nooit ongezien op de site.
+- Gating: publieke pagina 200; beveiligde pagina zonder code → 401 met codescherm en **geen
+  pagina-inhoud in de respons**; verkeerde code → 401; juiste code → 303 met een
+  HttpOnly/SameSite=Lax-cookie; mét cookie → 200. Na het roteren van de code was de al
+  uitgedeelde cookie meteen ongeldig (401), want de cookie is afgeleid van de code-hash.
+- Alle testdata is daarna weer verwijderd en de versie terug op `concept` gezet.
+
+**Waarom de e-commerce end-to-end-test niet kan.** Er is geen development store met een
+Admin-token — spec 3.8's `developmentStoreCreate` bestaat niet (zie 2026-07-27), dus die store
+moet manueel aangemaakt worden. De Shopify-connector die in deze omgeving hangt, geeft
+`operation_not_allowed: This shop is unavailable for API access`. Zonder levende winkel blijven
+`chat-edit-shopify` en de rate limiter ongetest. Dit is het enige punt van de lijst dat open
+staat, en het hangt op een account, niet op code.
+
 ## Known gaps (deliberate, not oversights)
 
 - **KBO Open Data import script doesn't exist.** `sourcing-run` reads from a
