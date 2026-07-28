@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test:site-builder": "tsx scripts/test-site-builder.ts",
     "test:site-widgets": "tsx scripts/test-site-widgets.ts",
-    "test": "npm run test:site-builder && npm run test:site-widgets"
+    "test": "npm run test:site-builder && npm run test:site-widgets && npm run test:shopify-mapping",
+    "test:shopify-mapping": "tsx scripts/test-site-naar-shopify.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.1",

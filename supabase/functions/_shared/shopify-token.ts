@@ -146,10 +146,20 @@ export async function getShopifyToken(supabase: any, leadId: string): Promise<{
  * Dev Dashboard app — the client credentials grant returns whatever the app
  * was configured with, so over-scoping there silently over-scopes every store.
  *
- * - write_themes    : spec 3.8 publishes each version as a theme
- * - write_products  : the klant manages products (spec section 4)
- * - write_content   : pages, so a generated site's content can be ported
- * Deliberately absent: orders, customers, payouts. This pipeline never reads
- * a customer record, and a token that can't do it is one that can't leak it.
+ * - write_themes                    : spec 3.8 publishes each version as a theme
+ * - write_products                  : the klant manages products (spec section 4)
+ * - write_content                   : pageCreate, for the ported site pages
+ * - write_online_store_navigation   : menuCreate/menuUpdate. Separate from
+ *   write_content, which is easy to miss — the docs state it explicitly on
+ *   menuCreate, and without it the pages port fine and the navigation silently
+ *   doesn't, leaving a store whose pages exist but are unreachable.
+ *
+ * Deliberately absent: orders, customers, payouts. This pipeline never reads a
+ * customer record, and a token that can't do it is one that can't leak it.
  */
-export const VEREISTE_SCOPES = ["write_themes", "write_products", "write_content"] as const;
+export const VEREISTE_SCOPES = [
+  "write_themes",
+  "write_products",
+  "write_content",
+  "write_online_store_navigation",
+] as const;
