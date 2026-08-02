@@ -1,18 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Lead, ReviewLogEntry, SiteVersion } from "@/lib/types";
-import { createClient } from "@/lib/supabase/client";
-import { startGeneration } from "./generate-actions";
-import { startPatchEdit } from "./patch-actions";
 import { fetchDemoSite, type DemoSite } from "./version-actions";
-import { uploadEnLees } from "./site-interactie-actions";
-import {
-  afzenderLabel,
-  fetchChatGeschiedenis,
-  voegChatBerichtToe,
-  type ChatBericht,
-} from "./chat-geschiedenis";
+import { afzenderLabel } from "./chat-geschiedenis";
+import { useLeadChat } from "./use-lead-chat";
+import { ChatVenster } from "./chat-venster";
 import {
   bouwPreviewDocument,
   PREVIEW_NAVIGATIE_BERICHT,
@@ -43,19 +36,20 @@ export function DemoPreview({
 }) {
   const [viewport, setViewport] = useState<Viewport>("desktop");
   const bestandInput = useRef<HTMLInputElement>(null);
-  const [uploadPending, startUploadTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
 
-  const [chatInput, setChatInput] = useState("");
-  const [chatMessages, setChatMessages] = useState<ChatBericht[]>([]);
-  const [chatPending, startChatTransition] = useTransition();
+  const [chatOpen, setChatOpen] = useState(false);
   const [previewVersion, setPreviewVersion] = useState(0);
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
   const [site, setSite] = useState<DemoSite | null>(null);
   const [huidigePagina, setHuidigePagina] = useState(START_PAGINA);
   const [previewHash, setPreviewHash] = useState("");
   const [previewError, setPreviewError] = useState<string | null>(null);
+
+  // Same conversation as the full-screen window: one hook, so the strip
+  // here and the big view can never behave differently.
+  const chat = useLeadChat(lead.id, siteVersion, onChanged, () =>
+    setPreviewVersion((v) => v + 1),
+  );
 
   // Loads the actual demo content so it renders where a preview should be,
   // regardless of whether a public hosting link exists yet — most leads
@@ -81,33 +75,6 @@ export function DemoPreview({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [siteVersion.content_referentie, siteVersion.paginas, previewVersion]);
 
-  // The conversation is loaded from the database rather than kept in component
-  // state: closing the panel used to throw it away, and the other user could
-  // never see what had been asked. Realtime keeps both dashboards in step.
-  useEffect(() => {
-    let afgebroken = false;
-    fetchChatGeschiedenis(lead.id).then((berichten) => {
-      if (!afgebroken) setChatMessages(berichten);
-    });
-
-    const supabase = createClient();
-    const channel = supabase
-      .channel(`chat-${lead.id}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "chat_berichten", filter: `lead_id=eq.${lead.id}` },
-        (payload) => {
-          const nieuw = payload.new as ChatBericht;
-          setChatMessages((prev) => (prev.some((b) => b.id === nieuw.id) ? prev : [...prev, nieuw]));
-        },
-      )
-      .subscribe();
-
-    return () => {
-      afgebroken = true;
-      supabase.removeChannel(channel);
-    };
-  }, [lead.id]);
 
   // Internal links inside the preview can't navigate on their own (no origin,
   // no directory — see preview-document.ts), so the iframe asks for the page
@@ -135,120 +102,8 @@ export function DemoPreview({
 
   const previewHtml = site?.[huidigePagina] ?? null;
 
-  function handleRegenerate() {
-    setError(null);
-    const instructie = chatInput.trim();
-    startTransition(async () => {
-      const result = await startGeneration(lead.id, instructie || undefined);
-      if (result) {
-        setError(result);
-        return;
-      }
-      if (instructie) {
-        setChatInput("");
-        await voegChatBerichtToe({
-          leadId: lead.id,
-          rol: "gebruiker",
-          tekst: instructie,
-          soort: "regeneratie",
-          siteVersionId: siteVersion.id,
-        });
-      }
-      await voegChatBerichtToe({
-        leadId: lead.id,
-        rol: "systeem",
-        soort: "regeneratie",
-        siteVersionId: siteVersion.id,
-        tekst: instructie
-          ? "Hele site wordt opnieuw gegenereerd met deze instructie; dat levert een nieuwe versie op."
-          : "Hele site wordt opnieuw gegenereerd; dat levert een nieuwe versie op.",
-      });
-      onChanged();
-    });
-  }
 
-  // Uploading from the chat box rather than a separate panel: adding a menu
-  // photo IS a change to the site, so it belongs in the same place as "die
-  // kleur moet anders". The transcription comes back as a chat reply so it
-  // can be checked immediately — it is OCR of a photo, not gospel.
-  function handleUpload(file: File) {
-    setError(null);
-    if (bestandInput.current) bestandInput.current.value = "";
 
-    startUploadTransition(async () => {
-      await voegChatBerichtToe({
-        leadId: lead.id,
-        rol: "gebruiker",
-        tekst: `Bestand toegevoegd: ${file.name}`,
-        soort: "upload",
-        siteVersionId: siteVersion.id,
-      });
-
-      const resultaat = await uploadEnLees(lead.id, file, "");
-      if (resultaat.error) {
-        await voegChatBerichtToe({
-          leadId: lead.id,
-          rol: "systeem",
-          soort: "upload",
-          tekst: resultaat.error,
-        });
-        return;
-      }
-      await voegChatBerichtToe({
-        leadId: lead.id,
-        rol: "systeem",
-        soort: "upload",
-        siteVersionId: siteVersion.id,
-        tekst: resultaat.tekst
-            ? `Uitgelezen uit ${resultaat.bestandsnaam}:
-
-${resultaat.tekst}
-
-Klopt dit? Genereer opnieuw om het op de site te zetten.`
-          : `${resultaat.bestandsnaam} staat klaar. Er stond geen leesbare tekst op, dus dit wordt als afbeelding gebruikt. Genereer opnieuw om het op de site te zetten.`,
-      });
-      onChanged();
-    });
-  }
-
-  function handleSendChat() {
-    const instruction = chatInput.trim();
-    if (!instruction) return;
-
-    setChatInput("");
-
-    startChatTransition(async () => {
-      await voegChatBerichtToe({
-        leadId: lead.id,
-        rol: "gebruiker",
-        tekst: instruction,
-        soort: "patch",
-        siteVersionId: siteVersion.id,
-      });
-
-      const result = await startPatchEdit(lead.id, instruction);
-      if (result.error) {
-        await voegChatBerichtToe({
-          leadId: lead.id,
-          rol: "systeem",
-          soort: "patch",
-          tekst: result.error,
-        });
-        return;
-      }
-      await voegChatBerichtToe({
-        leadId: lead.id,
-        rol: "ai",
-        soort: "patch",
-        siteVersionId: siteVersion.id,
-        tekst: result.antwoord ?? (result.toegepast ? "Wijziging doorgevoerd." : "Geen wijziging doorgevoerd."),
-      });
-      if (result.toegepast) {
-        setPreviewVersion((v) => v + 1);
-        onChanged();
-      }
-    });
-  }
 
   return (
     <section className="mt-6 space-y-3">
@@ -314,13 +169,24 @@ Klopt dit? Genereer opnieuw om het op de site te zetten.`
       {/* Everything that changes the site happens here: one input, so there's
           never a question of which box an instruction belongs in. */}
       <div className="space-y-1">
-        <h4 className="text-xs font-medium text-slate-500">
-          Aanpassen — typ hier wat er moet veranderen (3.5)
-        </h4>
+        <div className="flex items-center justify-between">
+          <h4 className="text-xs font-medium text-slate-500">
+            Aanpassen — typ hier wat er moet veranderen (3.5)
+          </h4>
+          {/* The strip here shows the last few lines; the full window shows the
+              whole thread and takes dragged-in files. Same conversation. */}
+          <button
+            type="button"
+            onClick={() => setChatOpen(true)}
+            className="text-xs font-medium text-blue-600 hover:underline"
+          >
+            Open grote chatbox
+          </button>
+        </div>
 
-        {chatMessages.length > 0 || chatPending || uploadPending ? (
+        {chat.berichten.length > 0 || chat.bezig || chat.uploadBezig ? (
           <ul className="max-h-40 space-y-1 overflow-y-auto rounded-xl border border-blue-100 p-2 text-xs">
-            {chatMessages.map((msg) => (
+            {chat.berichten.slice(-8).map((msg) => (
               <li
                 key={msg.id}
                 className={`whitespace-pre-wrap ${
@@ -343,14 +209,14 @@ Klopt dit? Genereer opnieuw om het op de site te zetten.`
                 </span>
               </li>
             ))}
-            {chatPending || uploadPending ? (
+            {chat.bezig || chat.uploadBezig ? (
               <li className="flex items-center gap-1.5 text-slate-400">
                 <span className="flex gap-0.5">
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:-0.3s]" />
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:-0.15s]" />
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" />
                 </span>
-                {uploadPending ? "bestand uitlezen..." : "aan het verwerken..."}
+                {chat.uploadBezig ? "bestand uitlezen..." : "aan het verwerken..."}
               </li>
             ) : null}
           </ul>
@@ -363,13 +229,13 @@ Klopt dit? Genereer opnieuw om het op de site te zetten.`
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
-              if (file) handleUpload(file);
+              if (file) chat.voegBestandToe(file);
             }}
           />
           <button
             type="button"
             onClick={() => bestandInput.current?.click()}
-            disabled={chatPending || uploadPending}
+            disabled={chat.bezig || chat.uploadBezig}
             title="Voeg een foto of document toe: een menukaart of prijslijst wordt uitgelezen, een gewone foto komt op de site."
             aria-label="Bestand toevoegen"
             className="rounded-xl border border-blue-200 px-3 py-2 text-sm text-slate-600 hover:bg-blue-50 disabled:opacity-50"
@@ -378,21 +244,21 @@ Klopt dit? Genereer opnieuw om het op de site te zetten.`
           </button>
           <input
             id="chatbox"
-            value={chatInput}
-            onChange={(e) => setChatInput(e.target.value)}
+            value={chat.invoer}
+            onChange={(e) => chat.setInvoer(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") handleSendChat();
+              if (e.key === "Enter") chat.verstuur();
             }}
             placeholder="bv. die kleur moet anders — of voeg links een menukaart toe"
             className="flex-1 rounded-xl border border-blue-200 px-3 py-2 text-sm outline-none text-slate-900 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
           />
           <button
             type="button"
-            onClick={handleSendChat}
-            disabled={chatPending || uploadPending}
+            onClick={chat.verstuur}
+            disabled={chat.bezig || chat.uploadBezig}
             className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
-            {chatPending ? "Bezig..." : "Verstuur"}
+            {chat.bezig ? "Bezig..." : "Verstuur"}
           </button>
         </div>
 
@@ -400,17 +266,17 @@ Klopt dit? Genereer opnieuw om het op de site te zetten.`
             a regeneration rebuilds the whole site with it as guidance. */}
         <button
           type="button"
-          onClick={handleRegenerate}
-          disabled={pending || chatPending || uploadPending}
+          onClick={chat.genereerOpnieuw}
+          disabled={chat.bezig || chat.uploadBezig}
           className="w-full rounded-xl border border-blue-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-blue-50 disabled:opacity-50"
         >
-          {pending
+          {chat.bezig
             ? "Bezig..."
-            : chatInput.trim()
+            : chat.invoer.trim()
               ? "Of: hele site opnieuw genereren met deze instructie"
               : "Of: hele site opnieuw genereren"}
         </button>
-        {error ? <p className="text-xs text-red-600">{error}</p> : null}
+        {chat.fout ? <p className="text-xs text-red-600">{chat.fout}</p> : null}
       </div>
 
       <button
@@ -428,6 +294,16 @@ Klopt dit? Genereer opnieuw om het op de site te zetten.`
       >
         Verstuur naar lead
       </button>
+
+      {chatOpen ? (
+        <ChatVenster
+          lead={lead}
+          siteVersion={siteVersion}
+          onChanged={onChanged}
+          onVersieGewijzigd={() => setPreviewVersion((v) => v + 1)}
+          onClose={() => setChatOpen(false)}
+        />
+      ) : null}
 
       {sendDialogOpen ? (
         <SendDialog lead={lead} onClose={() => setSendDialogOpen(false)} onSent={onChanged} />

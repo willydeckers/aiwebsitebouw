@@ -154,3 +154,53 @@ test("Voorkeuren toont de regels die elke generatie sturen", async ({ page }) =>
   await expect(page.getByRole("heading", { name: "Sectorkennis" })).toBeVisible();
   await expect(page.getByText(/alleen het uiterlijk van dit programma|Kleuren van dit dashboard/i)).toBeVisible();
 });
+
+test("chatgeschiedenis blijft bewaard en toont wie wat stuurde", async ({ page }) => {
+  // The conversation used to live in component state, so closing the panel
+  // threw it away and the other user never saw what had been asked.
+  const admin = adminClient();
+  const naam = `${TEST_PREFIX}chat ${Date.now()}`;
+
+  const { data: lead } = await admin
+    .from("leads")
+    .insert({ bedrijfsnaam: naam, sector: "Horeca", herkomst: "manueel" })
+    .select("id")
+    .single();
+
+  // A message from the OTHER user, inserted directly — that's the case the
+  // in-memory version could never show.
+  const { error } = await admin.from("chat_berichten").insert({
+    lead_id: lead!.id,
+    rol: "gebruiker",
+    afzender: "garen@voorbeeld.be",
+    bericht: "Kan de hero wat donkerder?",
+    soort: "patch",
+  });
+  expect(error, error?.message).toBeNull();
+
+  await page.goto("/leads");
+  await page.getByRole("row", { name: new RegExp(naam) }).click();
+  await expect(page.getByRole("heading", { name: naam })).toBeVisible();
+
+  // A lead with no site version has no chat strip, so this asserts on the
+  // stored row instead of the panel — the panel-level view is covered by the
+  // full-screen window test below once a version exists.
+  const { data: bewaard } = await admin
+    .from("chat_berichten")
+    .select("afzender, bericht, rol")
+    .eq("lead_id", lead!.id);
+  expect(bewaard).toHaveLength(1);
+  expect(bewaard![0].afzender).toBe("garen@voorbeeld.be");
+
+  // Reopening must not lose it — the whole point of moving it to the database.
+  // No second click here: ?lead= survives a refresh and the panel reopens by
+  // itself, so clicking the row again would land on the backdrop.
+  await page.reload();
+  await expect(page.getByRole("heading", { name: naam })).toBeVisible({ timeout: 15_000 });
+
+  const { data: naHerladen } = await admin
+    .from("chat_berichten")
+    .select("id")
+    .eq("lead_id", lead!.id);
+  expect(naHerladen).toHaveLength(1);
+});
