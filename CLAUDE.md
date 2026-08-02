@@ -483,6 +483,43 @@ Dashboard klikken staat vermoedelijk op gespannen voet met de Partner Program Ag
 risico is niet een gefaalde job maar schorsing van het Partner-account, met alle klantwinkels
 eraan.
 
+## 2026-07-30 — bugronde uit echt gebruik + persistente chat
+
+Gemeld tijdens gebruik, en wat het bleek te zijn:
+
+- **Willekeurig uitgelogd worden** (het ergste). De auth-guard in
+  `(dashboard)/layout.tsx` stuurde naar `/login` bij **elke** null-sessie uit
+  `onAuthStateChange`. Dat event vuurt óók met null bij tijdelijke toestanden
+  (INITIAL_SESSION vóór storage gelezen is, een refresh die even niets vasthoudt).
+  Reageert nu enkel op een echte `SIGNED_OUT`. De browserclient is bovendien een
+  expliciete singleton — `createBrowserClient` is singleton-by-default, maar 32
+  aanroepplekken die op een default steunen is te veel vertrouwen, en twee clients
+  die hetzelfde refresh-token verversen eindigt in `refresh_token_already_used`.
+- **"Shopify bleef laden"**: de job stond op `wachtrij` en er draaide geen worker.
+  De knop zei desondanks "Bezig met aanmaken…". Toont nu de wachtrij-toestand, en
+  de live-view pollt Storage niet meer voor beelden die nog niet kunnen bestaan.
+- **Gmail koppelen gaf "Error 400: invalid_request"** — dat was niet Google maar een
+  lege `NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID`. De app weigert nu vooraf met uitleg.
+- **Hydration-mismatch** kwam van `cz-shortcut-listen` (ColorZilla-extensie) op
+  `<body>`. Niet van ons; `suppressHydrationWarning` op dat ene element, zodat een
+  echte mismatch niet in de ruis verdwijnt.
+- Auditlog noemt nu het bedrijf; "Web Agency" linkt naar Overzicht; de tegels linken
+  naar de lijst die ze tellen (leadspagina kent nu de groepen `actief`/`aandacht`).
+
+**Chat is nu persistent** (`chat_berichten`). Stond in React-state, dus sluiten =
+kwijt, en de andere gebruiker zag nooit wat er gevraagd was. Rollen: `gebruiker`
+(mét adres, zodat "Garen vroeg dit" maanden later beantwoordbaar is), `ai`,
+`systeem`. `review_log` blijft apart: dat is het audit-spoor per versie, dit is het
+gesprek. `useLeadChat` is de enige plek met chatlogica; het strookje in het paneel
+en het volledige venster (`chat-venster.tsx`, met sleep-en-neerzet voor bestanden)
+zijn twee weergaven van dezelfde hook.
+
+**E2E staat nu op 5 tests**, groen tegen het echte project.
+
+**Nog steeds open**: geen KBO-import (wacht op een bestand van de gebruiker), geen
+levende Shopify-winkel, en **twee gebruikers tegelijk is nooit getest** — de
+Realtime-koppelingen zijn er wel, en de chat is daarvoor de logische eerste proef.
+
 ## Known gaps (deliberate, not oversights)
 
 - **KBO Open Data import script doesn't exist.** `sourcing-run` reads from a
