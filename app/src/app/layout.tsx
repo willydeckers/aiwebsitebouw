@@ -27,7 +27,11 @@ export default function RootLayout({
       lang="nl"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      {/* Browser extensions (ColorZilla, Grammarly, password managers) add
+          attributes like cz-shortcut-listen to <body> before React hydrates,
+          which React then reports as a mismatch. It isn't one of ours — this
+          silences the attribute diff on this element only, not the tree. */}
+      <body suppressHydrationWarning className="min-h-full flex flex-col">{children}</body>
     </html>
   );
 }

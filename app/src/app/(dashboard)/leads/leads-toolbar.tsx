@@ -37,6 +37,9 @@ export function LeadsToolbar({
         className="rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-sm text-slate-900"
       >
         <option value="">Alle statussen</option>
+        {/* Groepen, zodat de tegels op het Overzicht hier zichtbaar op landen. */}
+        <option value="actief">Actieve leads</option>
+        <option value="aandacht">Aandacht nodig</option>
         {LEAD_STATUSES.map((s) => (
           <option key={s} value={s}>
             {LEAD_STATUS_LABELS[s]}

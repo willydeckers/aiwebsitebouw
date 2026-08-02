@@ -161,7 +161,15 @@ export function StoreAanmaakPanel({
       ) : null}
 
       {job && (loopt || wachtOpMens) ? (
-        <LiveAutomatiseringView jobId={job.id} actief={true} actieVereist={actieVereist} />
+        <LiveAutomatiseringView
+          jobId={job.id}
+          // Only stream once the worker has actually picked the job up. While
+          // it sits in the queue there is no browser and no frame to fetch, so
+          // polling Storage twice a second would just be noise — and a job
+          // that stays queued means the worker isn't running at all.
+          actief={job.status === "bezig" || wachtOpMens}
+          actieVereist={actieVereist}
+        />
       ) : null}
 
       {stappen.length > 0 ? (
@@ -214,7 +222,11 @@ export function StoreAanmaakPanel({
             onClick={() => doe(() => startStoreAanmaak(leadId))}
             className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:bg-blue-50 disabled:text-slate-500"
           >
-            {loopt ? "Bezig met aanmaken…" : "Maak Shopify-winkel aan"}
+            {job?.status === "wachtrij"
+              ? "In wachtrij — draait de worker?"
+              : loopt
+                ? "Bezig met aanmaken…"
+                : "Maak Shopify-winkel aan"}
           </button>
         )}
       </div>

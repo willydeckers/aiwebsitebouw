@@ -20,7 +20,16 @@ export default function LeadsPage() {
   const loadLeads = useCallback(() => {
     const supabase = createClient();
     let query = supabase.from("leads").select("*").order("aangemaakt_op", { ascending: false });
-    if (status) query = query.eq("status", status as LeadStatus);
+    // "actief" and "aandacht" are groups, not statuses — the overview tiles
+    // link here with those, since "3 leads need attention" is only useful if
+    // clicking it shows you which three.
+    if (status === "actief") {
+      query = query.in("status", ["nieuw", "research", "genereren", "klaar"]);
+    } else if (status === "aandacht") {
+      query = query.in("status", ["geblokkeerd", "budget_overschreden"]);
+    } else if (status) {
+      query = query.eq("status", status as LeadStatus);
+    }
 
     query.then(({ data, error }) => {
       if (error) setError(error.message);

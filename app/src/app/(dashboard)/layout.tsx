@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import type { Session } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { applyUiPreset, getStoredPresetId } from "@/lib/ui-preset";
@@ -28,11 +29,21 @@ export default function DashboardLayout({
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession);
-      if (!newSession) {
+    } = supabase.auth.onAuthStateChange((event, newSession) => {
+      // Only a real sign-out sends you back to the login screen.
+      //
+      // This used to redirect on ANY null session, which is why the app
+      // sometimes threw you out mid-click: onAuthStateChange also fires with
+      // null for transient states — an INITIAL_SESSION before storage has been
+      // read, or a token refresh that briefly has nothing in hand. Treating
+      // those as "logged out" logged people out while they were using the app,
+      // and again right after they logged back in.
+      if (event === "SIGNED_OUT") {
+        setSession(null);
         router.replace("/login");
+        return;
       }
+      if (newSession) setSession(newSession);
     });
 
     return () => subscription.unsubscribe();
@@ -65,9 +76,12 @@ export default function DashboardLayout({
       style={{ backgroundColor: "var(--ui-bg, transparent)" }}
     >
       <aside className="w-56 shrink-0 rounded-3xl border border-white/70 bg-white/50 p-4 shadow-lg shadow-blue-200/30 backdrop-blur-2xl backdrop-saturate-150">
-        <p className="mb-4 px-2 text-sm font-semibold tracking-tight text-slate-800">
+        <Link
+          href="/"
+          className="mb-4 block rounded-xl px-2 py-1 text-sm font-semibold tracking-tight text-slate-800 transition hover:bg-white/60"
+        >
           Web Agency
-        </p>
+        </Link>
         <NavLinks />
       </aside>
 

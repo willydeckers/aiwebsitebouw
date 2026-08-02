@@ -26,8 +26,13 @@ export default function VoorkeurenPage() {
   }, []);
 
   function handleConnect() {
+    setError(null);
     const redirectUri = `${window.location.origin}/gmail-callback`;
-    window.location.href = buildGmailAuthUrl(redirectUri);
+    try {
+      window.location.href = buildGmailAuthUrl(redirectUri);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   function handleDisconnect() {

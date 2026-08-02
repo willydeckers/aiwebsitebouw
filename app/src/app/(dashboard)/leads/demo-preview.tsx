@@ -2,10 +2,17 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import type { Lead, ReviewLogEntry, SiteVersion } from "@/lib/types";
+import { createClient } from "@/lib/supabase/client";
 import { startGeneration } from "./generate-actions";
 import { startPatchEdit } from "./patch-actions";
 import { fetchDemoSite, type DemoSite } from "./version-actions";
 import { uploadEnLees } from "./site-interactie-actions";
+import {
+  afzenderLabel,
+  fetchChatGeschiedenis,
+  voegChatBerichtToe,
+  type ChatBericht,
+} from "./chat-geschiedenis";
 import {
   bouwPreviewDocument,
   PREVIEW_NAVIGATIE_BERICHT,
@@ -20,8 +27,6 @@ const VIEWPORT_WIDTH: Record<Viewport, string> = {
   desktop: "100%",
   mobiel: "375px",
 };
-
-type ChatMessage = { role: "user" | "systeem"; text: string };
 
 export function DemoPreview({
   lead,
@@ -43,7 +48,7 @@ export function DemoPreview({
   const [pending, startTransition] = useTransition();
 
   const [chatInput, setChatInput] = useState("");
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatMessages, setChatMessages] = useState<ChatBericht[]>([]);
   const [chatPending, startChatTransition] = useTransition();
   const [previewVersion, setPreviewVersion] = useState(0);
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
@@ -75,6 +80,34 @@ export function DemoPreview({
     // forces a reload after a chat-edit rewrote the same paths.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [siteVersion.content_referentie, siteVersion.paginas, previewVersion]);
+
+  // The conversation is loaded from the database rather than kept in component
+  // state: closing the panel used to throw it away, and the other user could
+  // never see what had been asked. Realtime keeps both dashboards in step.
+  useEffect(() => {
+    let afgebroken = false;
+    fetchChatGeschiedenis(lead.id).then((berichten) => {
+      if (!afgebroken) setChatMessages(berichten);
+    });
+
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`chat-${lead.id}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "chat_berichten", filter: `lead_id=eq.${lead.id}` },
+        (payload) => {
+          const nieuw = payload.new as ChatBericht;
+          setChatMessages((prev) => (prev.some((b) => b.id === nieuw.id) ? prev : [...prev, nieuw]));
+        },
+      )
+      .subscribe();
+
+    return () => {
+      afgebroken = true;
+      supabase.removeChannel(channel);
+    };
+  }, [lead.id]);
 
   // Internal links inside the preview can't navigate on their own (no origin,
   // no directory — see preview-document.ts), so the iframe asks for the page
@@ -113,12 +146,23 @@ export function DemoPreview({
       }
       if (instructie) {
         setChatInput("");
-        setChatMessages((prev) => [
-          ...prev,
-          { role: "user", text: instructie },
-          { role: "systeem", text: "Hele site wordt opnieuw gegenereerd met deze instructie." },
-        ]);
+        await voegChatBerichtToe({
+          leadId: lead.id,
+          rol: "gebruiker",
+          tekst: instructie,
+          soort: "regeneratie",
+          siteVersionId: siteVersion.id,
+        });
       }
+      await voegChatBerichtToe({
+        leadId: lead.id,
+        rol: "systeem",
+        soort: "regeneratie",
+        siteVersionId: siteVersion.id,
+        tekst: instructie
+          ? "Hele site wordt opnieuw gegenereerd met deze instructie; dat levert een nieuwe versie op."
+          : "Hele site wordt opnieuw gegenereerd; dat levert een nieuwe versie op.",
+      });
       onChanged();
     });
   }
@@ -129,28 +173,40 @@ export function DemoPreview({
   // can be checked immediately — it is OCR of a photo, not gospel.
   function handleUpload(file: File) {
     setError(null);
-    setChatMessages((prev) => [...prev, { role: "user", text: `Bestand toegevoegd: ${file.name}` }]);
     if (bestandInput.current) bestandInput.current.value = "";
 
     startUploadTransition(async () => {
+      await voegChatBerichtToe({
+        leadId: lead.id,
+        rol: "gebruiker",
+        tekst: `Bestand toegevoegd: ${file.name}`,
+        soort: "upload",
+        siteVersionId: siteVersion.id,
+      });
+
       const resultaat = await uploadEnLees(lead.id, file, "");
       if (resultaat.error) {
-        setChatMessages((prev) => [...prev, { role: "systeem", text: resultaat.error! }]);
+        await voegChatBerichtToe({
+          leadId: lead.id,
+          rol: "systeem",
+          soort: "upload",
+          tekst: resultaat.error,
+        });
         return;
       }
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          role: "systeem",
-          text: resultaat.tekst
+      await voegChatBerichtToe({
+        leadId: lead.id,
+        rol: "systeem",
+        soort: "upload",
+        siteVersionId: siteVersion.id,
+        tekst: resultaat.tekst
             ? `Uitgelezen uit ${resultaat.bestandsnaam}:
 
 ${resultaat.tekst}
 
 Klopt dit? Genereer opnieuw om het op de site te zetten.`
-            : `${resultaat.bestandsnaam} staat klaar. Er stond geen leesbare tekst op, dus dit wordt als afbeelding gebruikt. Genereer opnieuw om het op de site te zetten.`,
-        },
-      ]);
+          : `${resultaat.bestandsnaam} staat klaar. Er stond geen leesbare tekst op, dus dit wordt als afbeelding gebruikt. Genereer opnieuw om het op de site te zetten.`,
+      });
       onChanged();
     });
   }
@@ -159,22 +215,34 @@ Klopt dit? Genereer opnieuw om het op de site te zetten.`
     const instruction = chatInput.trim();
     if (!instruction) return;
 
-    setChatMessages((prev) => [...prev, { role: "user", text: instruction }]);
     setChatInput("");
 
     startChatTransition(async () => {
+      await voegChatBerichtToe({
+        leadId: lead.id,
+        rol: "gebruiker",
+        tekst: instruction,
+        soort: "patch",
+        siteVersionId: siteVersion.id,
+      });
+
       const result = await startPatchEdit(lead.id, instruction);
       if (result.error) {
-        setChatMessages((prev) => [...prev, { role: "systeem", text: result.error! }]);
+        await voegChatBerichtToe({
+          leadId: lead.id,
+          rol: "systeem",
+          soort: "patch",
+          tekst: result.error,
+        });
         return;
       }
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          role: "systeem",
-          text: result.antwoord ?? (result.toegepast ? "Wijziging doorgevoerd." : "Geen wijziging doorgevoerd."),
-        },
-      ]);
+      await voegChatBerichtToe({
+        leadId: lead.id,
+        rol: "ai",
+        soort: "patch",
+        siteVersionId: siteVersion.id,
+        tekst: result.antwoord ?? (result.toegepast ? "Wijziging doorgevoerd." : "Geen wijziging doorgevoerd."),
+      });
       if (result.toegepast) {
         setPreviewVersion((v) => v + 1);
         onChanged();
@@ -252,13 +320,27 @@ Klopt dit? Genereer opnieuw om het op de site te zetten.`
 
         {chatMessages.length > 0 || chatPending || uploadPending ? (
           <ul className="max-h-40 space-y-1 overflow-y-auto rounded-xl border border-blue-100 p-2 text-xs">
-            {chatMessages.map((msg, i) => (
+            {chatMessages.map((msg) => (
               <li
-                key={i}
-                className={`whitespace-pre-wrap ${msg.role === "user" ? "text-slate-800" : "text-slate-500"}`}
+                key={msg.id}
+                className={`whitespace-pre-wrap ${
+                  msg.rol === "gebruiker"
+                    ? "text-slate-800"
+                    : msg.rol === "ai"
+                      ? "text-slate-600"
+                      : "text-slate-400"
+                }`}
               >
-                <span className="font-medium">{msg.role === "user" ? "Jij: " : "AI: "}</span>
-                {msg.text}
+                <span className="font-medium">{afzenderLabel(msg)}: </span>
+                {msg.bericht}
+                <span className="ml-1 text-[10px] text-slate-400">
+                  {new Date(msg.aangemaakt_op).toLocaleString("nl-BE", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
               </li>
             ))}
             {chatPending || uploadPending ? (

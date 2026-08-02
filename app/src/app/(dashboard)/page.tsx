@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import type { LeadStatus } from "@/lib/types";
 
@@ -11,6 +12,9 @@ type AuditEntry = {
   lead_id: string | null;
   detail: Record<string, unknown> | null;
   timestamp: string;
+  // Joined in so the log says WHICH company an action was about — "Lead
+  // verwijderd" on its own tells you nothing you can act on.
+  lead: { bedrijfsnaam: string } | null;
 };
 
 const ACTIE_LABELS: Record<string, string> = {
@@ -28,14 +32,29 @@ const AANDACHT_STATUSSEN: LeadStatus[] = ["geblokkeerd", "budget_overschreden"];
 
 type Tallies = { actief: number; wacht: number; klanten: number; aandacht: number };
 
-function Tile({ label, value, tint }: { label: string; value: number | null; tint: string }) {
+/** A number you can't click is a dead end — each tile links to the list it
+ *  counts, pre-filtered. */
+function Tile({
+  label,
+  value,
+  tint,
+  href,
+}: {
+  label: string;
+  value: number | null;
+  tint: string;
+  href: string;
+}) {
   return (
-    <div className="glass-tile flex flex-col gap-1 px-5 py-4">
+    <Link
+      href={href}
+      className="glass-tile flex flex-col gap-1 px-5 py-4 transition hover:shadow-md hover:shadow-blue-200/50 focus:outline-none focus:ring-2 focus:ring-blue-300"
+    >
       <span className="text-xs font-medium tracking-wide text-slate-500">{label}</span>
       <span className="text-2xl font-semibold" style={{ color: tint }}>
         {value === null ? "—" : value}
       </span>
-    </div>
+    </Link>
   );
 }
 
@@ -49,7 +68,7 @@ export default function OverzichtPage() {
     function load() {
       supabase
         .from("audit_log")
-        .select("*")
+        .select("*, lead:leads(bedrijfsnaam)")
         .order("timestamp", { ascending: false })
         .limit(20)
         .then(({ data }) => setEntries((data as AuditEntry[]) ?? []));
@@ -86,10 +105,10 @@ export default function OverzichtPage() {
       <h1 className="text-lg font-semibold text-slate-900">Overzicht</h1>
 
       <section className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Tile label="Actieve leads" value={tallies?.actief ?? null} tint="#2563eb" />
-        <Tile label="In afwachting" value={tallies?.wacht ?? null} tint="#7c3aed" />
-        <Tile label="Klanten" value={tallies?.klanten ?? null} tint="#0d9488" />
-        <Tile label="Aandacht nodig" value={tallies?.aandacht ?? null} tint="#dc2626" />
+        <Tile label="Actieve leads" value={tallies?.actief ?? null} tint="#2563eb" href="/leads?status=actief" />
+        <Tile label="In afwachting" value={tallies?.wacht ?? null} tint="#7c3aed" href="/verstuurd" />
+        <Tile label="Klanten" value={tallies?.klanten ?? null} tint="#0d9488" href="/klanten" />
+        <Tile label="Aandacht nodig" value={tallies?.aandacht ?? null} tint="#dc2626" href="/leads?status=aandacht" />
       </section>
 
       <section className="mt-6 max-w-2xl space-y-2">
@@ -105,7 +124,14 @@ export default function OverzichtPage() {
                 <span className="text-xs text-slate-400">
                   {new Date(entry.timestamp).toLocaleString("nl-BE")}
                 </span>{" "}
-                — {ACTIE_LABELS[entry.actie] ?? entry.actie} ({entry.gebruiker})
+                — {ACTIE_LABELS[entry.actie] ?? entry.actie}
+                {entry.lead?.bedrijfsnaam ? (
+                  <>
+                    {" "}
+                    <span className="font-medium text-slate-900">{entry.lead.bedrijfsnaam}</span>
+                  </>
+                ) : null}{" "}
+                <span className="text-slate-500">({entry.gebruiker})</span>
               </li>
             ))}
           </ul>

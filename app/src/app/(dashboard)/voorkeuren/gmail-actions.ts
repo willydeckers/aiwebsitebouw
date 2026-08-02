@@ -33,8 +33,20 @@ const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 // access_type=offline + prompt=consent (spec 2: "verzending 7+ dagen na
 // koppeling nog werkend" needs a refresh_token, which Google only issues
 // on a consent grant, not a silent re-auth).
+export class GmailConfigError extends Error {}
+
 export function buildGmailAuthUrl(redirectUri: string): string {
   const clientId = process.env.NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID ?? "";
+  // Without this the user is sent to Google with an empty client_id and gets
+  // "Error 400: invalid_request — Missing required parameter: client_id",
+  // which reads like a Google problem rather than a missing setting here.
+  if (!clientId) {
+    throw new GmailConfigError(
+      "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID is niet ingevuld in app/.env.local, dus Google weet " +
+        "niet welke app toegang vraagt. Maak een OAuth-client (type: webapplicatie) in Google " +
+        `Cloud, zet ${redirectUri} bij de toegestane redirect-URI's, en vul het client-ID in.`,
+    );
+  }
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
