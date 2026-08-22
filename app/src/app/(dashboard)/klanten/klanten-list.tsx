@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { huidigEmail } from "@/lib/huidige-gebruiker";
 import { GEBRUIKER_COLORS, useKlantenPresence } from "./presence";
 
 export type KlantRow = {
@@ -24,7 +25,7 @@ export function KlantenList({
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null));
+    void huidigEmail(supabase).then(setEmail);
   }, []);
 
   // Not viewing any specific klant here, just watching the shared presence

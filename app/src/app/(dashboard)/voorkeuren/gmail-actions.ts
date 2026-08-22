@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
+import { huidigEmail } from "@/lib/huidige-gebruiker";
 import { describeFunctionError } from "@/lib/supabase/function-error";
 
 export type GmailKoppeling = {
@@ -13,12 +14,10 @@ function gebruikerFromEmail(email: string | undefined | null): "warre" | "garen"
 
 export async function fetchOwnGmailKoppeling(): Promise<GmailKoppeling | null> {
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
+  const email = await huidigEmail(supabase);
+  if (!email) return null;
 
-  const gebruiker = gebruikerFromEmail(user.email);
+  const gebruiker = gebruikerFromEmail(email);
   const { data } = await supabase
     .from("gmail_koppeling")
     .select("gebruiker, gekoppeld_op, status")
@@ -72,15 +71,13 @@ export async function exchangeGmailCode(code: string, redirectUri: string): Prom
 
 export async function disconnectGmail(): Promise<string | null> {
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return "Niet ingelogd.";
+  const email = await huidigEmail(supabase);
+  if (!email) return "Niet ingelogd.";
 
   const { error } = await supabase
     .from("gmail_koppeling")
     .update({ status: "niet_gekoppeld", refresh_token: null })
-    .eq("gebruiker", gebruikerFromEmail(user.email));
+    .eq("gebruiker", gebruikerFromEmail(email));
 
   return error ? `Ontkoppelen mislukt: ${error.message}` : null;
 }

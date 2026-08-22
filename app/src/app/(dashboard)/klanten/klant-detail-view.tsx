@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { huidigEmail } from "@/lib/huidige-gebruiker";
 import { fetchDemoHtml } from "../leads/version-actions";
 import { fetchCostSummary, type CostSummary } from "@/lib/costs";
 import { CostSummaryView } from "../leads/cost-summary-view";
@@ -42,7 +43,7 @@ export function KlantDetailView({ klantId, onBack }: { klantId: string; onBack: 
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null));
+    void huidigEmail(supabase).then(setEmail);
   }, []);
 
   useEffect(() => {

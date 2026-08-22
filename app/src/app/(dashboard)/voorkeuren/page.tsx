@@ -9,6 +9,7 @@ import {
 } from "./gmail-actions";
 import { UiPresetsPanel } from "./ui-presets-panel";
 import { AiRegelsPanel } from "./ai-regels-panel";
+import { SessieDiagnose } from "./sessie-diagnose";
 
 const STATUS_LABELS: Record<GmailKoppeling["status"], string> = {
   actief: "Gekoppeld",
@@ -92,6 +93,8 @@ export default function VoorkeurenPage() {
       <AiRegelsPanel />
 
       <UiPresetsPanel />
+
+      <SessieDiagnose />
     </div>
   );
 }

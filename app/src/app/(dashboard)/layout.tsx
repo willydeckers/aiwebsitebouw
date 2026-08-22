@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Session } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
+import { noteerAuthGebeurtenis } from "@/lib/auth-logboek";
 import { applyUiPreset, getStoredPresetId } from "@/lib/ui-preset";
 import { NavLinks } from "./nav-links";
 import { ProfileBubble } from "./profile-bubble";
@@ -39,9 +40,36 @@ export default function DashboardLayout({
       // read, or a token refresh that briefly has nothing in hand. Treating
       // those as "logged out" logged people out while they were using the app,
       // and again right after they logged back in.
+      const verlooptOver = newSession?.expires_at
+        ? Math.round(newSession.expires_at - Date.now() / 1000)
+        : null;
+      noteerAuthGebeurtenis({
+        gebeurtenis: event,
+        sessieAanwezig: !!newSession,
+        verlooptOverSeconden: verlooptOver,
+      });
+
       if (event === "SIGNED_OUT") {
-        setSession(null);
-        router.replace("/login");
+        // Verify before throwing the user out. A SIGNED_OUT can arrive from a
+        // failed token refresh in one request while the stored session is
+        // still perfectly good; redirecting on the event alone is how people
+        // ended up back at the login screen mid-click.
+        void supabase.auth.getSession().then(({ data }) => {
+          if (data.session) {
+            noteerAuthGebeurtenis({
+              gebeurtenis: "SIGNED_OUT genegeerd",
+              sessieAanwezig: true,
+              verlooptOverSeconden: data.session.expires_at
+                ? Math.round(data.session.expires_at - Date.now() / 1000)
+                : null,
+              detail: "sessie stond nog in storage, dus niet uitgelogd",
+            });
+            setSession(data.session);
+            return;
+          }
+          setSession(null);
+          router.replace("/login");
+        });
         return;
       }
       if (newSession) setSession(newSession);

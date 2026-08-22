@@ -50,6 +50,49 @@ async function weigerOnbruikbaar(job: { id: string; type: string }) {
   console.error(`Job ${job.id} (${job.type}) geweigerd: ${uitleg}`);
 }
 
+/**
+ * Puts jobs left behind by a previous worker back in the queue.
+ *
+ * Only one worker runs at a time, so anything still on `bezig` or
+ * `wacht_op_mens` when this one starts belongs to a process that is gone. Its
+ * browser died with it, so nobody is coming back to finish the run — and
+ * claimNextJob only ever looks at `wachtrij`, which left those jobs stranded
+ * forever. That is what "it keeps hanging on the login page" was: the job was
+ * parked waiting for a human, the worker behind it had exited, and pressing
+ * Hervatten moved it to `bezig`, which no worker picks up either.
+ *
+ * Routed through `timeout` because the state machine forbids bezig -> wachtrij
+ * directly, and "timed out" is what actually happened to them.
+ */
+async function herstelVerweesdeJobs() {
+  const { data: verweesd } = await supabase
+    .from("jobs")
+    .select("id, type, status")
+    .in("status", ["bezig", "wacht_op_mens"]);
+
+  for (const job of verweesd ?? []) {
+    const { error: timeoutError } = await supabase
+      .from("jobs")
+      .update({ status: "timeout" })
+      .eq("id", job.id);
+    if (timeoutError) {
+      console.error(`Kon verweesde job ${job.id} niet op timeout zetten:`, timeoutError.message);
+      continue;
+    }
+    const { error } = await supabase
+      .from("jobs")
+      .update({
+        status: "wachtrij",
+        error_message: "Vorige worker is gestopt; job opnieuw in de wachtrij gezet.",
+      })
+      .eq("id", job.id);
+    if (error) console.error(`Kon verweesde job ${job.id} niet herstellen:`, error.message);
+    else console.log(`Verweesde job ${job.id} (${job.type}, stond op ${job.status}) terug in de wachtrij.`);
+  }
+  if (verweesd?.length) console.log(`${verweesd.length} verweesde job(s) hersteld.
+`);
+}
+
 async function claimNextJob() {
   const { data: candidates, error } = await supabase
     .from("jobs")
@@ -157,4 +200,7 @@ console.log(
   "Worker gestart — pollt jobs (research, generatie, review, shopify_opbouw, " +
     "shopify_store_aanmaak) elke 5s.",
 );
-pollLoop();
+
+// Reclaim before polling, so a restart picks up where the last one was killed
+// instead of leaving those jobs stranded.
+void herstelVerweesdeJobs().then(pollLoop);

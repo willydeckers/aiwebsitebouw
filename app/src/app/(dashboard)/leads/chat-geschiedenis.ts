@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
+import { huidigEmail } from "@/lib/huidige-gebruiker";
 
 // The conversation about a lead's site, kept in the database rather than in
 // React state so it survives closing the panel — and so both users see the
@@ -42,10 +43,8 @@ export async function voegChatBerichtToe(bericht: {
   // make the transcript claim the assistant is a user.
   let afzender: string | null = null;
   if (bericht.rol === "gebruiker") {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    afzender = user?.email ?? null;
+    const email = await huidigEmail(supabase);
+    afzender = email;
   }
 
   const { data } = await supabase

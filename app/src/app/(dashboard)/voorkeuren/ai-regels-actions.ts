@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 import { logAudit } from "@/lib/audit";
+import { huidigEmail } from "@/lib/huidige-gebruiker";
 
 // The two tables that steer every generation. Until now neither had any UI,
 // which is why the Voorkeuren page felt like it was about nothing: the
@@ -42,14 +43,12 @@ export async function addStijlvoorkeur(regel: string): Promise<string | null> {
   if (schoon.length < 5) return "Schrijf een iets uitgebreidere regel.";
 
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const email = await huidigEmail(supabase);
 
   const { error } = await supabase.from("stijlvoorkeuren").insert({
     regel: schoon,
     context: "Handmatig toegevoegd via Voorkeuren",
-    toegevoegd_door: user?.email ?? null,
+    toegevoegd_door: email,
   });
   if (error) return `Toevoegen mislukt: ${error.message}`;
   await logAudit("stijlvoorkeur_toegevoegd", undefined, { regel: schoon });
@@ -80,14 +79,12 @@ export async function addSectorKennis(sector: string, regel: string): Promise<st
   if (schoneRegel.length < 5) return "Schrijf een iets uitgebreidere regel.";
 
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const email = await huidigEmail(supabase);
 
   const { error } = await supabase.from("sector_kennis").insert({
     sector: schoneSector,
     regel: schoneRegel,
-    toegevoegd_door: user?.email ?? null,
+    toegevoegd_door: email,
   });
   if (error) return `Toevoegen mislukt: ${error.message}`;
   await logAudit("sectorkennis_toegevoegd", undefined, { sector: schoneSector });

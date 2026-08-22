@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/client";
 import { logAudit } from "@/lib/audit";
 import type { SiteBestand, SiteInzending, SiteToegang } from "@/lib/types";
+import { huidigEmail } from "@/lib/huidige-gebruiker";
 
 // Downloads, form/review submissions and the access code for gated pages.
 // All three are read here with the app's own (RLS-protected) session; the
@@ -118,9 +119,7 @@ export async function uploadBestand(
     .upload(opslagPad, file, { contentType: file.type || "application/octet-stream", upsert: true });
   if (uploadError) return `Upload mislukt: ${uploadError.message}`;
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const email = await huidigEmail(supabase);
 
   const { error } = await supabase.from("site_bestanden").upsert(
     {
@@ -130,7 +129,7 @@ export async function uploadBestand(
       content_type: file.type || null,
       grootte_bytes: file.size,
       omschrijving: omschrijving.trim() || null,
-      toegevoegd_door: user?.email ?? null,
+      toegevoegd_door: email,
     },
     { onConflict: "lead_id,bestandsnaam" },
   );
@@ -188,9 +187,7 @@ export async function setToegangscode(
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const email = await huidigEmail(supabase);
 
   const { error } = await supabase.from("site_toegang").upsert(
     {
@@ -198,7 +195,7 @@ export async function setToegangscode(
       code_hash: await sha256Hex(`${zout}:${schoon}`),
       salt: zout,
       hint: hint.trim() || null,
-      aangemaakt_door: user?.email ?? null,
+      aangemaakt_door: email,
     },
     { onConflict: "lead_id" },
   );
