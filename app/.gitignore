@@ -45,3 +45,7 @@ next-env.d.ts
 /test-results
 /playwright-report
 /e2e/.auth
+
+# Tauri build output — a compiled Rust target tree and the installer itself.
+/src-tauri/target/
+/src-tauri/gen/schemas/

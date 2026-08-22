@@ -4,9 +4,26 @@
     {
       "name": "dashboard-web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "cwd": "app",
       "port": 3000,
+      "autoPort": false
+    },
+    {
+      "name": "dashboard-statisch",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "serve",
+        "out",
+        "-p",
+        "3100",
+        "-s"
+      ],
+      "cwd": "app",
+      "port": 3100,
       "autoPort": false
     }
   ]

@@ -603,6 +603,50 @@ vaak het juiste formaat, en lossless WebP scheelt ~20-30% op enkele tientallen K
 telefoonfoto van megabytes is de winst reëel, maar dan is *verkleinen* de grotere hefboom dan
 het formaat. Bewuste afweging, geen vergetelheid.
 
+## 2026-08-21 — echte Windows-app met installer
+
+`app/src-tauri/` bestond al, maar was de onaangeroerde `create-tauri-app`-steiger: het wees met
+`frontendDist` naar `../.next-static-unused`, een map die niet bestaat. Er was dus nooit een app
+gebouwd. Nu wel.
+
+```bash
+cd app && npm run app:build
+```
+
+Levert `app/src-tauri/target/release/bundle/nsis/Web Agency Dashboard_0.1.0_x64-setup.exe`
+(**2,3 MB** — Tauri gebruikt de WebView2 die al op elke Windows 10/11 staat, dus er zit geen
+browser in de installer). `npm run app:dev` draait de app tegen `next dev` met hot reload.
+Rust is vereist om te bouwen, niet om te draaien.
+
+- `frontendDist` wijst nu naar `../out`, de echte static-export. `beforeBuildCommand` draait
+  `next build`, dus één commando volstaat.
+- Bundeldoel is **enkel NSIS**, niet `"all"` — `"all"` probeert ook een MSI via WiX te maken, wat
+  hier niets toevoegt. Installeert per gebruiker (`currentUser`), dus geen UAC-prompt.
+- **`NEXT_PUBLIC_*` worden bij het bouwen ingebakken.** De Supabase-URL en anon-key zitten dus in
+  de installer. Dat hoort zo (de anon-key is publiek en RLS doet het werk), maar het betekent dat
+  een installer voor een ander Supabase-project opnieuw gebouwd moet worden.
+- Geverifieerd: de gebouwde `app.exe` start en blijft draaien, en de static-export die erin zit
+  boot schoon in een browser (loginscherm rendert, geen console-fouten). Het vénster zelf is niet
+  visueel nagekeken — dat vraagt schermbediening die hier niet beschikbaar was.
+
+**Wat een geïnstalleerde app nog niet kan, en waarom.**
+- **De worker draait niet mee.** Research, generatie, review en de Shopify-jobs gebeuren allemaal
+  in `worker/`, een apart Node-proces. Installeer je enkel deze app, dan zie je leads en versies
+  maar blijft élke pipeline-stap in de wachtrij staan — de worker-waarschuwing bovenaan zegt dat
+  ook, alleen noemt ze een `npx tsx`-commando dat voor een geïnstalleerde gebruiker nergens op
+  slaat. De echte oplossing is de worker als **Tauri-sidecar** meeleveren (esbuild-bundel +
+  Node-binary), met twee open vragen die eerst een beslissing vragen: Playwright's Chromium is
+  ~150 MB (meeleveren of bij eerste start ophalen), en de worker heeft de
+  `SUPABASE_SERVICE_ROLE_KEY` nodig — die omzeilt RLS volledig en mag dus **niet** in een
+  gedeelde installer gebakken worden, maar hoort in een instellingenscherm bij eerste start.
+- **Gmail koppelen werkt niet in de verpakte app.** Google's redirect-URI wordt
+  `window.location.origin`, en dat is in Tauri `http://tauri.localhost` — geen geldige
+  redirect-URI voor Google. Een desktop-app hoort dat via een loopback-listener te doen
+  (systeembrowser openen, `http://127.0.0.1:<poort>/` opvangen). Los van de al bekende lege
+  `NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID`.
+- **Wachtwoord vergeten** stuurt een link naar `NEXT_PUBLIC_APP_URL` (nu `localhost:3000`). Voor
+  een geïnstalleerde app moet dat een echt bereikbare URL zijn.
+
 ## Known gaps (deliberate, not oversights)
 
 - **KBO Open Data import script doesn't exist.** `sourcing-run` reads from a
