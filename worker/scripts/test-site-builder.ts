@@ -14,6 +14,7 @@ import {
   SiteBuildError,
   bouwSite,
   markeerActievePagina,
+  optimaliseerAfbeeldingen,
   parseSiteBron,
 } from "../src/shared/site-builder.js";
 
@@ -312,6 +313,57 @@ test("controleert downloadlinks tegen de geüploade bestanden", () => {
     () => bouwSite(parseSiteBron(metDownload), "Test", { bestanden: ["iets-anders.pdf"] }),
     /prijslijst\.pdf/,
   );
+});
+
+test("laadt de eerste afbeelding meteen en de rest pas als ze in beeld komt", () => {
+  const html = optimaliseerAfbeeldingen(
+    '<img src="a.jpg"><p>x</p><img src="b.jpg"><img src="c.jpg">',
+  );
+  const tags = html.match(/<img[^>]*>/g)!;
+  assert.match(tags[0], /loading="eager"/);
+  assert.match(tags[0], /fetchpriority="high"/);
+  assert.match(tags[1], /loading="lazy"/);
+  assert.match(tags[2], /loading="lazy"/);
+  assert.ok(!/fetchpriority/.test(tags[1]));
+  for (const tag of tags) assert.match(tag, /decoding="async"/);
+});
+
+test("laat een expliciete loading-keuze staan", () => {
+  const html = optimaliseerAfbeeldingen('<img src="a.jpg" loading="lazy">');
+  assert.match(html, /loading="lazy"/);
+  assert.ok(!/loading="eager"/.test(html));
+});
+
+test("zet auto=format op afbeeldingenbank-URLs, want dat is wat WebP levert", () => {
+  // Met bestaande query -> &, zonder -> ?, en een URL die het al heeft blijft
+  // ongemoeid (geen dubbele parameter).
+  assert.match(
+    optimaliseerAfbeeldingen('<img src="https://images.unsplash.com/photo-1?w=800">'),
+    /photo-1\?w=800&auto=format/,
+  );
+  assert.match(
+    optimaliseerAfbeeldingen('<img src="https://images.unsplash.com/photo-2">'),
+    /photo-2\?auto=format/,
+  );
+  const alGoed = '<img src="https://images.unsplash.com/photo-3?auto=format&w=800">';
+  assert.equal((optimaliseerAfbeeldingen(alGoed).match(/auto=/g) ?? []).length, 1);
+  // Een eigen geuploade afbeelding krijgt geen Unsplash-parameters aangeplakt.
+  assert.ok(!/auto=format/.test(optimaliseerAfbeeldingen('<img src="bestanden/logo.png">')));
+});
+
+test("houdt een zelfsluitende tag zelfsluitend", () => {
+  assert.match(optimaliseerAfbeeldingen('<img src="a.jpg" />'), /decoding="async"\/>/);
+});
+
+test("de gebouwde pagina komt er met geoptimaliseerde afbeeldingen uit", () => {
+  const metBeeld = GENEST.replace(
+    "<main><h1>Tuinaanleg</h1></main>",
+    '<main><h1>Tuinaanleg</h1><img src="https://images.unsplash.com/photo-9?w=800"><img src="https://images.unsplash.com/photo-8?w=800"></main>',
+  );
+  const paginas = bouwSite(parseSiteBron(metBeeld), "Test");
+  const pagina = paginas.find((p) => p.bestand === "tuinaanleg.html")!;
+  assert.match(pagina.html, /auto=format/);
+  assert.match(pagina.html, /loading="lazy"/);
 });
 
 console.log(`\n${geslaagd} tests geslaagd${process.exitCode ? " (met fouten)" : ""}`);

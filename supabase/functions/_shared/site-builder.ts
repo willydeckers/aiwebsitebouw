@@ -479,6 +479,59 @@ export type BouwOpties = {
   bestanden?: string[];
 };
 
+/**
+ * Makes every <img> load the way it should, in code rather than by asking the
+ * model nicely.
+ *
+ * Three things, all of which the model got wrong or left out often enough to
+ * be worth guaranteeing:
+ *
+ * 1. `auto=format` on Unsplash URLs. That is what actually delivers WebP/AVIF
+ *    — imgix negotiates on the Accept header, so a modern browser gets WebP
+ *    and an old one still gets JPEG. Serving WebP is therefore not a matter of
+ *    storing different files; it is one query parameter, and the risk is a
+ *    hand-written URL that drops it.
+ * 2. `loading="lazy"` on everything except the first image. Lazy-loading the
+ *    image at the top of the page delays the very thing the visitor is waiting
+ *    for, so the first one is eager and high priority instead; a services page
+ *    with a dozen photos loads one, not twelve.
+ * 3. `decoding="async"`, so decoding a large photo doesn't block the rest.
+ *
+ * An explicit attribute the model wrote is always left alone — this fills gaps,
+ * it doesn't overrule a deliberate choice.
+ */
+export function optimaliseerAfbeeldingen(html: string): string {
+  let eerste = true;
+
+  return html.replace(/<img\b[^>]*>/gi, (tag) => {
+    let uit = tag;
+
+    uit = uit.replace(
+      /(\bsrc\s*=\s*)("([^"]*)"|'([^']*)')/i,
+      (heel, aanloop: string, _geheel: string, dubbel: string, enkel: string) => {
+        const url = dubbel ?? enkel ?? "";
+        if (!url.includes("images.unsplash.com") || /[?&]auto=/.test(url)) return heel;
+        return `${aanloop}"${url}${url.includes("?") ? "&" : "?"}auto=format"`;
+      },
+    );
+
+    const heeftLoading = /\bloading\s*=/i.test(uit);
+    const heeftDecoding = /\bdecoding\s*=/i.test(uit);
+    const heeftPrioriteit = /\bfetchpriority\s*=/i.test(uit);
+
+    const toevoegen: string[] = [];
+    if (!heeftLoading) toevoegen.push(eerste ? 'loading="eager"' : 'loading="lazy"');
+    if (eerste && !heeftPrioriteit) toevoegen.push('fetchpriority="high"');
+    if (!heeftDecoding) toevoegen.push('decoding="async"');
+    eerste = false;
+
+    if (!toevoegen.length) return uit;
+    // Insert before the tag's own closing bracket, keeping a self-closing
+    // slash where the model used one.
+    return uit.replace(/\s*(\/?)>$/, ` ${toevoegen.join(" ")}$1>`);
+  });
+}
+
 export function bouwSite(
   bron: SiteBron,
   bedrijfsnaam: string,
@@ -626,7 +679,7 @@ export function bouwSite(
 
     // The model never writes a hosting endpoint into the markup; see
     // vulEndpointsIn for why the values it fills in are relative.
-    return { ...gebouwd, html: vulEndpointsIn(gebouwd.html) };
+    return { ...gebouwd, html: optimaliseerAfbeeldingen(vulEndpointsIn(gebouwd.html)) };
   });
 }
 
