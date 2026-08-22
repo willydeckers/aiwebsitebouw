@@ -564,6 +564,45 @@ lopen — reken op één ronde bijstellen, daarvoor bestaan het stappenlog en de
 Nog niet ingevuld: `SHOPIFY_APP_CLIENT_ID`/`SHOPIFY_APP_CLIENT_SECRET` (Dev Dashboard-app).
 Zonder die twee worden `shopify_opbouw`-jobs nu netjes geweigerd met uitleg.
 
+## 2026-08-21 — de willekeurige uitlogs, verweesde jobs, en afbeeldingen
+
+- **Uitgelogd worden had een aanwijsbare oorzaak.** Negen `auth.getUser()`-aanroepen op
+  gewone handelingen (een lead openen, een voorkeur bewaren, een auditregel schrijven).
+  Dat is telkens een netwerkronde die het token serverside valideert; faalt de refresh
+  erachter, dan gooit supabase-js de sessie weg en vuurt `SIGNED_OUT`, en de guard zette je
+  midden in een klik op `/login`. Al die plekken wilden enkel het e-mailadres — dat leest
+  `getSession()` uit storage zónder netwerk. Alle negen zijn omgezet naar
+  `app/src/lib/huidige-gebruiker.ts`; er staat nu **geen enkele `getUser()` meer in `app/src`**.
+  De guard controleert bovendien vóór hij doorstuurt: een `SIGNED_OUT` terwijl de sessie nog
+  in storage staat, is geen uitlog.
+- **Er ligt nu een spoor**, want de oorzaak was nooit hard bewezen. `app/src/lib/auth-logboek.ts`
+  schrijft elke auth-gebeurtenis naar localStorage (namen en tijdstippen, **nooit tokens**),
+  zodat het de redirect overleeft. Uit te lezen via **Voorkeuren → Sessie-diagnose**. Gebeurt
+  het opnieuw, kijk daar eerst — dan is er iets om naar te kijken in plaats van een beschrijving.
+- **"Blijft hangen op de inlogpagina" (MIKI TEA) waren verweesde jobs.** `claimNextJob` kijkt
+  enkel naar `wachtrij`; een job die op `bezig` of `wacht_op_mens` stond toen de worker stierf,
+  werd door niemand nog opgepikt — ook niet na "Hervatten", want dat zet hem op `bezig`. De
+  worker zet zulke jobs bij het opstarten terug in de wachtrij (`herstelVerweesdeJobs()`, via
+  `timeout`, want `bezig → wachtrij` mag niet van de statustrigger).
+
+**WebP: het idee klopt, maar het grootste deel gebeurde al.** Elke URL in de afbeeldingenbank
+draagt `auto=format` — dat is imgix-contentonderhandeling: een moderne browser krijgt WebP of
+AVIF via de Accept-header, een oude gewoon JPEG. De stockfoto's, veruit de meeste pixels op een
+gegenereerde site, waren dus nooit het probleem. Wat er wél ontbrak, zat niet in het formaat:
+niets vertelde het model over lazy loading, dus een dienstenpagina met twaalf foto's haalde er
+twaalf tegelijk op. `optimaliseerAfbeeldingen()` in de site-builder regelt dat nu in code —
+eerste afbeelding `eager` + `fetchpriority="high"`, de rest `lazy`, alles `decoding="async"`,
+en een bank-URL zonder `auto=format` krijgt hem alsnog. Een attribuut dat het model bewust
+schreef, blijft staan.
+
+**Wat níet omgezet wordt, en waarom niet:** het logo uit de briefing en uploads via de chat
+worden byte-voor-byte geserveerd zoals ze binnenkwamen. Omzetten vraagt een encoder in de worker
+(`sharp`, een native binary) op een machine die al met native binaries vecht (zie Chromium's
+`STATUS_DLL_INIT_FAILED` hierboven). Voor een logo is de winst bovendien klein — PNG is daar
+vaak het juiste formaat, en lossless WebP scheelt ~20-30% op enkele tientallen KB. Voor een
+telefoonfoto van megabytes is de winst reëel, maar dan is *verkleinen* de grotere hefboom dan
+het formaat. Bewuste afweging, geen vergetelheid.
+
 ## Known gaps (deliberate, not oversights)
 
 - **KBO Open Data import script doesn't exist.** `sourcing-run` reads from a
