@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import { applyUiPreset, getStoredPresetId } from "@/lib/ui-preset";
 import { NavLinks } from "./nav-links";
 import { ProfileBubble } from "./profile-bubble";
+import { WorkerWaarschuwing } from "./worker-waarschuwing";
 
 export default function DashboardLayout({
   children,
@@ -93,7 +94,8 @@ export default function DashboardLayout({
 
         <main className="flex-1">
           <div className="mx-auto h-full max-w-6xl rounded-3xl border border-white/70 bg-white/55 p-6 shadow-lg shadow-blue-200/30 backdrop-blur-2xl backdrop-saturate-150">
-            {children}
+            <WorkerWaarschuwing />
+        {children}
           </div>
         </main>
       </div>

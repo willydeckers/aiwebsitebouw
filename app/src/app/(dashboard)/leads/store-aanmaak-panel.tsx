@@ -223,7 +223,7 @@ export function StoreAanmaakPanel({
             className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:bg-blue-50 disabled:text-slate-500"
           >
             {job?.status === "wachtrij"
-              ? "In wachtrij — draait de worker?"
+              ? "In wachtrij — wacht op de worker"
               : loopt
                 ? "Bezig met aanmaken…"
                 : "Maak Shopify-winkel aan"}

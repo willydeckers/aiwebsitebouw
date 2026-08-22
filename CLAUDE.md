@@ -520,6 +520,50 @@ zijn twee weergaven van dezelfde hook.
 levende Shopify-winkel, en **twee gebruikers tegelijk is nooit getest** — de
 Realtime-koppelingen zijn er wel, en de chat is daarvoor de logische eerste proef.
 
+## 2026-08-21 — waarom de Shopify-store-aanmaak "bleef hangen"
+
+Gemeld: het blijft hangen, er is nog nooit een winkel aangemaakt. Diagnose gaf drie
+gestapelde oorzaken, waarvan de derde de eigenlijke bug was.
+
+**1. Er draaide geen worker.** Drie `shopify_store_aanmaak`-jobs stonden op `wachtrij`
+(1 aug, 2 aug, 21 aug), alle drie met `pogingen=0`, `gestart_op` leeg en nul regels in
+`shopify_automatisering_log`. De automatisering had dus nog geen milliseconde gedraaid —
+het was nooit een selector- of CAPTCHA-probleem.
+
+**2. `SHOPIFY_PARTNER_ORGANIZATION_ID` ontbrak in `worker/.env`.** Hij stond in
+`app/.env.local`, maar dat is een ander bestand; de worker leest zijn eigen omgeving. Zodra
+een job wél geclaimd werd, was hij meteen gestorven op regel 1. Nu aangevuld.
+
+**3. De echte bug: "wachtrij" en "er draait niets" zagen er identiek uit.** Een job kon drie
+weken blijven staan terwijl de UI netjes "in wachtrij" toonde. Daarom:
+- **`worker_status`-tabel met hartslag** (elke 15s, plus tijdens lange jobs via een eigen
+  interval — anders lijkt een job van 3 minuten op een dode worker). Eén rij, met een
+  `check(id)`-primary key: twee workers die elk hun eigen rij schrijven zou een dode
+  worker levend laten lijken.
+- **Waarschuwingsbalk in de hele dashboard-layout** zodra de laatste hartslag ouder is dan
+  60s, met het startcommando erin. Geldt voor álle worker-jobs (research, generatie,
+  review, Shopify), niet alleen deze.
+- **`worker/src/shared/omgeving.ts`**: de worker controleert zijn omgeving één keer bij het
+  opstarten. Kernvariabelen ontbreken → weigert te starten. Optionele ontbreken → waarschuwt
+  wélke jobtypes daardoor niet kunnen, en die jobs worden meteen op `mislukt` gezet in plaats
+  van eeuwig te blijven staan.
+
+**Daarna geverifieerd door hem echt te draaien**: de worker claimde de job van 1 augustus,
+opende een echte browser, kwam op het loginscherm van het Partner Dashboard en zette de job
+correct op `wacht_op_mens` met een screenshot erbij. De keten werkt dus tot precies het punt
+waar hij een mens nodig heeft.
+
+**Wat er nu nog van jou nodig is** (dit kan de automatisering niet en mag ze niet):
+1. Start de worker: `cd worker && npx tsx --env-file=.env src/index.ts`.
+2. Log één keer zelf in op het Partner Dashboard in het venster dat opengaat. De sessie blijft
+   daarna bewaard in `.shopify-sessie/`.
+3. Klik "Hervatten" in het leadpaneel.
+Pas dan kunnen de selectors uit `store-flow-config.ts` voor het eerst tegen de echte pagina's
+lopen — reken op één ronde bijstellen, daarvoor bestaan het stappenlog en de screenshots.
+
+Nog niet ingevuld: `SHOPIFY_APP_CLIENT_ID`/`SHOPIFY_APP_CLIENT_SECRET` (Dev Dashboard-app).
+Zonder die twee worden `shopify_opbouw`-jobs nu netjes geweigerd met uitleg.
+
 ## Known gaps (deliberate, not oversights)
 
 - **KBO Open Data import script doesn't exist.** `sourcing-run` reads from a

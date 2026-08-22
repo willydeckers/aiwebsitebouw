@@ -1,4 +1,5 @@
 import { createWorkerClient } from "./shared/supabase.js";
+import { controleerOmgeving } from "./shared/omgeving.js";
 import { processGenerateJob } from "./pipeline/generate-job.js";
 import { processResearchJob } from "./pipeline/research-job.js";
 import { processShopifyStoreAanmaakJob } from "./shopify/store-aanmaak-job.js";
@@ -11,7 +12,43 @@ const POLL_INTERVAL_MS = 5000;
 // process, since this worker processes one job at a time anyway.
 const JOB_TIMEOUT_MS = 15 * 60 * 1000;
 
+const HARTSLAG_MS = 15_000;
+
+// Refuses to start on a missing core variable, and reports which job types
+// can't be handled with what's configured.
+const { onbruikbareTypes } = controleerOmgeving();
+
 const supabase = createWorkerClient();
+
+/**
+ * Says "I am alive" every few seconds so the dashboard can tell a busy queue
+ * apart from a dead one. Three store-creation jobs sat queued for three weeks
+ * because nothing distinguished those two states.
+ */
+async function hartslag(huidigeJobId: string | null) {
+  const { error } = await supabase
+    .from("worker_status")
+    .update({ laatste_hartslag: new Date().toISOString(), huidige_job_id: huidigeJobId })
+    .eq("id", true);
+  if (error) console.error("Kon hartslag niet schrijven:", error.message);
+}
+
+/**
+ * A job this worker is not configured for must fail loudly rather than sit in
+ * the queue. Leaving it there looks identical to "busy", which is exactly how
+ * the Shopify jobs stayed invisible.
+ */
+async function weigerOnbruikbaar(job: { id: string; type: string }) {
+  const uitleg =
+    `Deze worker mist de omgevingsvariabelen voor '${job.type}'. Vul ze aan in worker/.env ` +
+    "en herstart de worker; zie de waarschuwing bij het opstarten voor welke.";
+  await supabase.from("jobs").update({ status: "bezig" }).eq("id", job.id);
+  await supabase
+    .from("jobs")
+    .update({ status: "mislukt", error_message: uitleg, afgerond_op: new Date().toISOString() })
+    .eq("id", job.id);
+  console.error(`Job ${job.id} (${job.type}) geweigerd: ${uitleg}`);
+}
 
 async function claimNextJob() {
   const { data: candidates, error } = await supabase
@@ -90,14 +127,34 @@ async function runJob(job: {
 }
 
 async function pollLoop() {
+  await hartslag(null);
   const job = await claimNextJob();
   if (job) {
-    await runJob(job);
+    if (onbruikbareTypes.has(job.type)) {
+      await weigerOnbruikbaar(job);
+    } else {
+      await hartslag(job.id);
+      await runJob(job);
+    }
     setImmediate(pollLoop);
   } else {
     setTimeout(pollLoop, POLL_INTERVAL_MS);
   }
 }
 
-console.log("Worker gestart — pollt jobs (research, generatie, review, shopify_opbouw, shopify_store_aanmaak) elke 5s.");
+// The poll loop only beats when it comes round; a long job would otherwise
+// look like a dead worker halfway through.
+setInterval(() => {
+  void hartslag(null).catch(() => {});
+}, HARTSLAG_MS);
+
+void supabase
+  .from("worker_status")
+  .update({ gestart_op: new Date().toISOString(), laatste_hartslag: new Date().toISOString() })
+  .eq("id", true);
+
+console.log(
+  "Worker gestart — pollt jobs (research, generatie, review, shopify_opbouw, " +
+    "shopify_store_aanmaak) elke 5s.",
+);
 pollLoop();
