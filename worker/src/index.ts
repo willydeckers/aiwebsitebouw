@@ -160,12 +160,23 @@ async function runJob(job: {
     }
 
     clearTimeout(timeout);
-    await supabase.from("jobs").update({ status: "klaar" }).eq("id", job.id);
+    // afgerond_op is not bookkeeping: job-duur.ts reads it to work out how long
+    // each step usually takes, and shows that estimate on the button. The
+    // worker never filled it in, so from the moment research and generatie
+    // moved here those two had no measurements left to average -- the estimate
+    // silently fell back to its default and stayed there.
+    await supabase
+      .from("jobs")
+      .update({ status: "klaar", afgerond_op: new Date().toISOString() })
+      .eq("id", job.id);
   } catch (err) {
     clearTimeout(timeout);
     const message = err instanceof Error ? err.message : String(err);
     console.error(`Job ${job.id} (${job.type}) mislukt:`, message);
-    await supabase.from("jobs").update({ status: "mislukt", error_message: message }).eq("id", job.id);
+    await supabase
+      .from("jobs")
+      .update({ status: "mislukt", error_message: message, afgerond_op: new Date().toISOString() })
+      .eq("id", job.id);
   }
 }
 
@@ -190,6 +201,33 @@ async function pollLoop() {
 setInterval(() => {
   void hartslag(null).catch(() => {});
 }, HARTSLAG_MS);
+
+/**
+ * Stops when whoever started us goes away.
+ *
+ * The desktop app runs this process itself, hidden, and pipes stdin to it. If
+ * the app is killed rather than closed cleanly, that pipe closes and this
+ * fires -- without it the worker would keep running invisibly, and a second one
+ * would start next launch. Two workers racing for the same jobs is a bug this
+ * project has already had once, and it is far harder to spot when neither has
+ * a window.
+ *
+ * Only when the parent explicitly asks for it. Inferring it from stdin not
+ * being a TTY looks reasonable and is wrong: any background start -- a shell
+ * script, a service manager, this project's own tooling -- gets EOF on stdin
+ * immediately and the worker would quit a second after starting. Observed,
+ * not theorised.
+ */
+function stopBijGeslotenInvoer() {
+  if (process.env.WORKER_STOP_BIJ_GESLOTEN_INVOER !== "1") return;
+  process.stdin.on("end", () => {
+    console.log("Invoerkanaal gesloten — de app is gestopt, dus deze worker stopt ook.");
+    process.exit(0);
+  });
+  process.stdin.resume();
+}
+
+stopBijGeslotenInvoer();
 
 void supabase
   .from("worker_status")

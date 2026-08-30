@@ -7,3 +7,6 @@
 # Playwright-browserprofiel van de store-automatisering. Bevat cookies en
 # Login Data van het Partner Dashboard zodra je inlogt — nooit in git.
 /.shopify-sessie
+
+# esbuild output for the desktop bundle
+/dist-bundel/

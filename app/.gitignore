@@ -49,3 +49,7 @@ next-env.d.ts
 # Tauri build output — a compiled Rust target tree and the installer itself.
 /src-tauri/target/
 /src-tauri/gen/schemas/
+
+# Packed-in worker runtime: node.exe plus playwright, assembled by
+# `cd worker && npm run pak-in`. Build output, not source.
+/src-tauri/resources/

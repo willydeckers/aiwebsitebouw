@@ -11,7 +11,9 @@
     "test:site-builder": "tsx scripts/test-site-builder.ts",
     "test:site-widgets": "tsx scripts/test-site-widgets.ts",
     "test": "npm run test:site-builder && npm run test:site-widgets && npm run test:shopify-mapping",
-    "test:shopify-mapping": "tsx scripts/test-site-naar-shopify.ts"
+    "test:shopify-mapping": "tsx scripts/test-site-naar-shopify.ts",
+    "bundel": "tsx scripts/bundel.ts",
+    "pak-in": "npm run bundel && tsx scripts/pak-in.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.1",
@@ -21,6 +23,7 @@
   },
   "devDependencies": {
     "@types/node": "^20",
+    "esbuild": "^0.28.2",
     "tsx": "^4.19.0",
     "typescript": "^5"
   }

@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The desktop shell: compiled Rust output and the packed-in worker
+    // (node.exe plus playwright's own JS). None of it is this app's source.
+    "src-tauri/target/**",
+    "src-tauri/resources/**",
   ]),
 ]);
 
