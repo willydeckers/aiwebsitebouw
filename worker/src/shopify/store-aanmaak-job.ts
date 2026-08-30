@@ -6,7 +6,14 @@ import {
   logStap,
   vindEerste,
 } from "./live-browser.js";
-import { DOMEIN_PATROON, STORE_FLOW, storeNaamVoorLead } from "./store-flow-config.js";
+import type { StapSelector } from "./store-flow-config.js";
+import {
+  DOMEIN_PATROON,
+  STORE_FLOW,
+  STORE_URL_PATROON,
+  domeinVoorHandle,
+  storeNaamVoorLead,
+} from "./store-flow-config.js";
 
 // Creating a Shopify development store by driving the Partner Dashboard.
 //
@@ -77,7 +84,7 @@ async function stap(
     leadId: string;
   },
   naam: string,
-  selector: { kandidaten: readonly string[]; omschrijving: string },
+  selector: StapSelector,
   actie: (selector: string) => Promise<void>,
   opties: { optioneel?: boolean } = {},
 ): Promise<boolean> {
@@ -99,7 +106,12 @@ async function stap(
       continue;
     }
 
-    const gevonden = await vindEerste(ctx.page, selector.kandidaten, STORE_FLOW.stapTimeoutMs);
+    const gevonden = await vindEerste(
+      ctx.page,
+      selector.kandidaten,
+      STORE_FLOW.stapTimeoutMs,
+      selector.wachtOp ?? "visible",
+    );
     if (!gevonden) {
       if (opties.optioneel) {
         await logStap(ctx.supabase, {
@@ -220,15 +232,24 @@ export async function processShopifyStoreAanmaakJob(
     const s = STORE_FLOW.stappen;
 
     const gelukt =
-      (await stap(ctx, "nieuwe-store-knop", s.nieuweStoreKnop, (sel) => page.click(sel))) &&
-      (await stap(ctx, "type-development-store", s.typeDevelopmentStore, (sel) => page.click(sel), {
-        optioneel: true,
+      // The "Create store" link goes to admin.shopify.com — a different origin
+      // — and its href carries the dashboard id every later URL needs. Reading
+      // it and navigating is both more reliable than clicking a cross-origin
+      // link and the reason no second id has to be configured.
+      (await stap(ctx, "naar-store-formulier", s.nieuweStoreLink, async (sel) => {
+        const href = await page.locator(sel).first().getAttribute("href");
+        if (!href) throw new Error("De 'Create store'-link heeft geen href.");
+        await page.goto(href, { waitUntil: "domcontentloaded" });
       })) &&
+      (await stap(ctx, "type-development-store", s.typeDevelopmentStore, (sel) =>
+        page.locator(sel).first().click({ force: true }),
+      )) &&
       (await stap(ctx, "store-naam", s.storeNaamVeld, async (sel) => {
-        await page.fill(sel, storeNaam);
+        await page.locator(sel).first().fill(storeNaam);
       })) &&
-      (await stap(ctx, "doel-test-en-develop", s.doelTestEnDevelop, (sel) => page.click(sel), {
-        optioneel: true,
+      // Required, even though the submit button renders as enabled without it.
+      (await stap(ctx, "plan-kiezen", s.planKeuze, async (sel) => {
+        await page.locator(sel).first().selectOption(STORE_FLOW.planWaarde);
       })) &&
       (await stap(ctx, "aanmaken", s.aanmakenKnop, (sel) => page.click(sel)));
 
@@ -241,9 +262,19 @@ export async function processShopifyStoreAanmaakJob(
     }
 
     // The domain is the only thing that proves the store exists, and it's what
-    // every later step keys on.
-    const gevonden = await vindEerste(page, s.gelukIndicator.kandidaten, 60_000);
-    const domein = gevonden ? DOMEIN_PATROON.exec(await page.content())?.[1] ?? null : null;
+    // every later step keys on. Creation ends on the new store's admin at
+    // admin.shopify.com/store/<handle>; the myshopify domain is derived from
+    // that handle and appears nowhere on the page itself.
+    let domein: string | null = null;
+    try {
+      await page.waitForURL(STORE_URL_PATROON, { timeout: 90_000 });
+      const handle = STORE_URL_PATROON.exec(page.url())?.[1];
+      if (handle) domein = domeinVoorHandle(handle);
+    } catch {
+      // Fall back to anything on the page that does spell a domain out — a
+      // confirmation screen instead of a redirect would still be a success.
+      domein = DOMEIN_PATROON.exec(await page.content())?.[1] ?? null;
+    }
 
     if (!domein) {
       await logStap(supabase, {

@@ -165,13 +165,17 @@ export async function vindEerste(
   page: Page,
   kandidaten: readonly string[],
   timeoutMs: number,
+  // "attached" for controls that exist but never render — Shopify's store-type
+  // choice is a real radio behind a styled card, so demanding visibility would
+  // time out on a page that is working perfectly.
+  wachtOp: "visible" | "attached" = "visible",
 ): Promise<{ selector: string } | null> {
   // Split the budget: five candidates each waiting the full timeout would turn
   // a 20s step into 100s of dead waiting.
   const perKandidaat = Math.max(1500, Math.floor(timeoutMs / Math.max(1, kandidaten.length)));
   for (const selector of kandidaten) {
     try {
-      await page.locator(selector).first().waitFor({ state: "visible", timeout: perKandidaat });
+      await page.locator(selector).first().waitFor({ state: wachtOp, timeout: perKandidaat });
       return { selector };
     } catch {
       // Next candidate.

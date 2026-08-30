@@ -10,3 +10,8 @@
 
 # esbuild output for the desktop bundle
 /dist-bundel/
+
+# Screenshots en gedownloade sites uit de verkenningsscripts
+/verkenning-*.jpg
+/store-*.jpg
+/site-uit/
