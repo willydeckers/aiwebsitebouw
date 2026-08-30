@@ -737,6 +737,14 @@ Resultaat: acht stappen, allemaal ok, winkel
 `shopify_stores`. Er staat ook een handmatig aangemaakte `antwerp-fried-chicken-f5364396`
 van vlak daarvoor (uit het verkennen van de flow) — die mag weg.
 
+**Nog een statusbug, uit dezelfde familie als die van 26/07.** `generatie` zet de lead bij het
+starten op `genereren`, en controleerde aan het eind `lead.status` — maar dat is de waarde van
+vóór die update. Een lead die al `klaar` was, matchte dus de "niet terugzetten"-lijst, de update
+werd overgeslagen, en de lead bleef eeuwig op `genereren` staan mét een afgewerkte, goedgekeurde
+site. De guard onthoudt nu of díe run de status effectief verzet heeft; `verzonden`/`geopend`/
+`klant` worden bovendien niet meer naar `genereren` getrokken, wat de oude code wél deed.
+`research` heeft de bug niet (zet niets terug aan het eind).
+
 **De mapping site → Shopify is tegen echte output getest**, niet enkel tegen de fixture:
 `worker/scripts/proef-shopify-mapping.ts` draait `paginasVoorShopify`/`menuItemsVoorShopify` op
 de gegenereerde site en controleert op dode menu-items en weespagina's. Resultaat: 7 pages,

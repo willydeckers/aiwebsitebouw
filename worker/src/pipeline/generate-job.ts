@@ -34,7 +34,15 @@ export async function processGenerateJob(
   const { data: lead, error: leadError } = await supabase.from("leads").select("*").eq("id", leadId).single();
   if (leadError || !lead) throw new Error(`Lead niet gevonden: ${leadError?.message}`);
 
-  await supabase.from("leads").update({ status: "genereren" }).eq("id", leadId);
+  // Spec 3.5 has an ongoing-maintenance path: a lead that is already sent,
+  // opened or a customer can be regenerated without being dragged back through
+  // the pipeline. Showing "genereren" on such a lead would be a lie about where
+  // it stands, so only leads that have not got that far move.
+  const VOORBIJ_GENEREREN = ["verzonden", "geopend", "klant"];
+  const magStatusVolgen = !VOORBIJ_GENEREREN.includes(lead.status);
+  if (magStatusVolgen) {
+    await supabase.from("leads").update({ status: "genereren" }).eq("id", leadId);
+  }
 
   const [{ data: stijlvoorkeuren }, { data: sectorKennis }, { data: bestaandConcept }, { data: bestandRijen }] =
     await Promise.all([
@@ -206,10 +214,14 @@ ${b.geextraheerde_tekst}`,
       .insert({ lead_id: leadId, site_type: "demo", versienummer, status: "concept", ...velden });
   }
 
-  // Regenerating for a lead that's already progressed past "klaar" (sent,
-  // opened, or already a klant — spec 3.5's ongoing-maintenance path)
-  // shouldn't push it backwards through the pipeline.
-  if (!["klaar", "verzonden", "geopend", "klant"].includes(lead.status)) {
+  // Only leads this run actually moved to "genereren" get moved on to "klaar".
+  //
+  // This used to test lead.status against a list that included "klaar" — but
+  // lead.status is the value read before this job set "genereren", so a lead
+  // that was already klaar matched, the update was skipped, and it sat on
+  // "genereren" forever with a finished, approved site. Hit for real by
+  // Antwerp Fried Chicken's second generation.
+  if (magStatusVolgen) {
     await supabase.from("leads").update({ status: "klaar" }).eq("id", leadId);
   }
 }
