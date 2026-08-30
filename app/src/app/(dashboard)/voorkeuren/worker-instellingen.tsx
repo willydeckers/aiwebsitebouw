@@ -6,6 +6,7 @@ import {
   herstartWorker,
   isDesktopApp,
   leesWorkerConfig,
+  leesWorkerLog,
   leesWorkerToestand,
   schrijfWorkerConfig,
   type WorkerConfig,
@@ -82,6 +83,7 @@ export function WorkerInstellingen() {
   const [toestand, setToestand] = useState<WorkerToestand | null>(null);
   const [bezig, setBezig] = useState(false);
   const [melding, setMelding] = useState<string | null>(null);
+  const [logboek, setLogboek] = useState<string>("");
 
   if (!isDesktopApp()) return null;
 
@@ -93,6 +95,7 @@ export function WorkerInstellingen() {
     setOpen(true);
     setConfig(await leesWorkerConfig());
     setToestand(await leesWorkerToestand());
+    setLogboek(await leesWorkerLog());
   }
 
   async function bewaren() {
@@ -101,6 +104,7 @@ export function WorkerInstellingen() {
     try {
       const nieuw = await schrijfWorkerConfig(config);
       setToestand(nieuw);
+      setLogboek(await leesWorkerLog());
       setMelding(nieuw.draait ? "Bewaard — de worker draait." : nieuw.reden || "Bewaard.");
     } catch (err) {
       setMelding(err instanceof Error ? err.message : String(err));
@@ -115,6 +119,7 @@ export function WorkerInstellingen() {
     try {
       const nieuw = await herstartWorker();
       setToestand(nieuw);
+      setLogboek(await leesWorkerLog());
       setMelding(nieuw.draait ? "De worker draait." : nieuw.reden);
     } finally {
       setBezig(false);
@@ -188,6 +193,19 @@ export function WorkerInstellingen() {
           </div>
 
           {melding ? <p className="text-xs text-slate-600">{melding}</p> : null}
+
+          {/* The worker has no console. Without this its output goes nowhere
+              and a refusal to start is invisible. */}
+          {logboek ? (
+            <details>
+              <summary className="cursor-pointer text-xs text-slate-500">
+                Uitvoer van de worker
+              </summary>
+              <pre className="mt-2 max-h-64 overflow-auto rounded-xl bg-slate-900 p-3 text-[11px] leading-relaxed text-slate-100">
+                {logboek}
+              </pre>
+            </details>
+          ) : null}
         </div>
       ) : null}
     </section>

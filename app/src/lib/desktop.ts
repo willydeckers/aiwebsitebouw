@@ -64,3 +64,12 @@ export async function leesWorkerToestand(): Promise<WorkerToestand | null> {
 export async function herstartWorker(): Promise<WorkerToestand> {
   return roep<WorkerToestand>("worker_herstarten");
 }
+
+/**
+ * The worker's own stdout and stderr. It runs without a console, so this file
+ * is the only place a startup refusal or a crash is visible at all.
+ */
+export async function leesWorkerLog(): Promise<string> {
+  if (!isDesktopApp()) return "";
+  return roep<string>("worker_log");
+}

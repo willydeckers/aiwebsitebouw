@@ -56,10 +56,19 @@ const OPTIONEEL: Vereiste[] = [
  * what will fail before a lead runs into it.
  */
 export function controleerOmgeving(): { onbruikbareTypes: Set<string> } {
+  // Where the operator should go to fix it depends on who started us. Inside
+  // the desktop app there is no worker/.env at all -- the values come from the
+  // settings screen -- and pointing someone at a file that does not exist on
+  // their machine is worse than saying nothing.
+  const waar =
+    process.env.WORKER_STOP_BIJ_GESLOTEN_INVOER === "1"
+      ? "bij Voorkeuren → Worker in de app"
+      : "in worker/.env";
+
   const ontbrekendKern = KERN.filter((v) => !process.env[v.naam]);
   if (ontbrekendKern.length) {
     throw new Error(
-      "De worker kan niet starten — ontbrekend in worker/.env:\n" +
+      `De worker kan niet starten — ontbrekend ${waar}:\n` +
         ontbrekendKern.map((v) => `  ${v.naam}  (${v.uitleg})`).join("\n"),
     );
   }
@@ -70,7 +79,7 @@ export function controleerOmgeving(): { onbruikbareTypes: Set<string> } {
 
   if (ontbrekend.length) {
     console.warn(
-      "\nLet op — deze variabelen ontbreken in worker/.env:\n" +
+      `\nLet op — deze variabelen ontbreken ${waar}:\n` +
         ontbrekend.map((v) => `  ${v.naam}  (${v.uitleg})`).join("\n") +
         `\nJobs van het type ${[...onbruikbareTypes].join(", ")} worden daarom meteen als ` +
         "mislukt gemarkeerd in plaats van eeuwig in de wachtrij te blijven staan.\n",

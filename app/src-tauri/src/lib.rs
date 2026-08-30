@@ -11,6 +11,7 @@ pub fn run() {
       worker::worker_config_schrijven,
       worker::worker_toestand,
       worker::worker_herstarten,
+      worker::worker_log,
     ])
     .setup(|app| {
       if cfg!(debug_assertions) {

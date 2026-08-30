@@ -96,6 +96,40 @@ fn config_pad(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(map.join("worker.json"))
 }
 
+/// Strips Windows' verbatim `\\?\` prefix.
+///
+/// resource_dir() hands back a canonicalised path, and on Windows that means
+/// `\\?\E:\...`. Rust and the OS handle it fine, but Node does not: it fails
+/// to resolve its own entry point and dies with
+/// `EISDIR: illegal operation on a directory, lstat 'E:'` before running a
+/// single line. Found from the worker's log — which is the entire reason that
+/// log exists, since this process has no console to print to.
+fn gewoon_pad(pad: PathBuf) -> PathBuf {
+    let tekst = pad.to_string_lossy();
+    match tekst.strip_prefix(r"\\?\") {
+        Some(zonder) => PathBuf::from(zonder),
+        None => pad,
+    }
+}
+
+fn log_pad(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(config_pad(app)?.with_file_name("worker.log"))
+}
+
+/// The worker's own output, for the settings screen to show. A hidden process
+/// whose stdout goes nowhere is one you cannot debug at all.
+#[tauri::command]
+pub fn worker_log(app: AppHandle) -> String {
+    let Ok(pad) = log_pad(&app) else {
+        return String::new();
+    };
+    let inhoud = std::fs::read_to_string(&pad).unwrap_or_default();
+    // Last 100 lines: enough to see a startup refusal or a crash, short enough
+    // to hand straight to a UI.
+    let regels: Vec<&str> = inhoud.lines().collect();
+    regels[regels.len().saturating_sub(100)..].join("\n")
+}
+
 pub fn lees_config(app: &AppHandle) -> WorkerConfig {
     let Ok(pad) = config_pad(app) else {
         return WorkerConfig::default();
@@ -122,12 +156,13 @@ pub fn start(app: &AppHandle, proces: &WorkerProces) -> Result<(), String> {
         );
     }
 
-    let map = app
-        .path()
-        .resource_dir()
-        .map_err(|e| format!("Geen resourcemap: {e}"))?
-        .join("resources")
-        .join("worker");
+    let map = gewoon_pad(
+        app.path()
+            .resource_dir()
+            .map_err(|e| format!("Geen resourcemap: {e}"))?
+            .join("resources")
+            .join("worker"),
+    );
 
     let node = map.join(if cfg!(windows) { "node.exe" } else { "node" });
     let bundel = map.join("worker.cjs");
@@ -139,6 +174,17 @@ pub fn start(app: &AppHandle, proces: &WorkerProces) -> Result<(), String> {
         ));
     }
 
+    // Keep the worker's output. It has no window and no console, so throwing
+    // stdout and stderr away leaves a process that can die for any reason at
+    // all with nothing to look at afterwards — which is exactly the "queued
+    // forever, no idea why" problem this whole change exists to end.
+    let logpad = log_pad(app)?;
+    let logbestand = std::fs::File::create(&logpad)
+        .map_err(|e| format!("Kon {} niet openen: {e}", logpad.display()))?;
+    let logfout = logbestand
+        .try_clone()
+        .map_err(|e| format!("Kon het logbestand niet dupliceren: {e}"))?;
+
     let mut commando = Command::new(&node);
     commando
         .arg(&bundel)
@@ -146,8 +192,8 @@ pub fn start(app: &AppHandle, proces: &WorkerProces) -> Result<(), String> {
         // Piped, not null: closing this pipe is how the worker learns the app
         // is gone. See stopBijGeslotenInvoer() on the other side.
         .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stdout(Stdio::from(logbestand))
+        .stderr(Stdio::from(logfout));
 
     // Opt in to the stdin watchdog. The worker only honours it when asked,
     // because every other way of starting it (a terminal, a script) hands it a

@@ -647,6 +647,113 @@ Rust is vereist om te bouwen, niet om te draaien.
 - **Wachtwoord vergeten** stuurt een link naar `NEXT_PUBLIC_APP_URL` (nu `localhost:3000`). Voor
   een geïnstalleerde app moet dat een echt bereikbare URL zijn.
 
+## 2026-08-29 — de worker zit in de app, en de Shopify-automatisering draaide echt
+
+**De worker wordt meegeleverd en start mee met de app, onzichtbaar.** Voorheen kon een
+geïnstalleerde app leads en versies tonen maar bleef élke pipeline-stap in de wachtrij —
+research, generatie, review en Shopify draaien allemaal in `worker/`, een apart Node-proces dat
+je met de hand moest starten.
+
+```bash
+cd worker && npm run pak-in     # bundelt + zet node.exe en playwright klaar
+cd app && npm run app:build     # installer, 27 MB
+```
+
+- `scripts/bundel.ts` (esbuild) maakt er één `worker.cjs` van, 1,5 MB. **Playwright blijft
+  extern**: het zoekt zijn driver en browserbinaries relatief aan zijn eigen pakketmap, dus
+  gebundeld zou het naar een bestand wijzen dat niet meer bestaat. `scripts/pak-in.ts` zet het
+  ernaast, samen met `node.exe`.
+- **Chromium gaat niet mee** (~150 MB, enkel nodig voor review-screenshots en de
+  Shopify-automatisering). Playwright cachet hem per gebruiker bij het eerste gebruik.
+- **De geheimen zitten NIET in de installer.** De service-role-key omzeilt RLS volledig, dus een
+  gedeeld installatiebestand zou volledige databasetoegang weggeven. Ze staan in
+  `%APPDATA%/be.webagency.dashboard/worker.json`, geschreven door het nieuwe blok
+  **Voorkeuren → Worker**. Bewaren herstart de worker meteen.
+- De worker-waarschuwingsbalk toont in de verpakte app een **knop** in plaats van een
+  `npx tsx`-commando dat een geïnstalleerde gebruiker nergens kan uitvoeren.
+
+**Drie dingen die pas bleken door hem echt te draaien:**
+1. **De stdin-bewaker mag niets afleiden uit "stdin is geen TTY".** Elke achtergrondstart krijgt
+   meteen EOF, dus de worker stierf één seconde na het starten. Nu enkel actief als de Rust-kant
+   `WORKER_STOP_BIJ_GESLOTEN_INVOER=1` zet. Getest: de app hard afschieten neemt de worker mee
+   (`RunEvent::Exit` vuurt dan niet, de gesloten pipe wel).
+2. **Tauri's `resource_dir()` geeft op Windows een `\\?\`-pad terug** en Node struikelt daarover:
+   het faalt op zijn eigen entrypoint met `EISDIR ... lstat 'E:'` vóór er één regel draait.
+   `gewoon_pad()` strip het prefix.
+3. **De worker never schreef `afgerond_op`.** `job-duur.ts` filtert precies op die kolom om te
+   schatten hoe lang een stap duurt — sinds research en generatie naar de worker verhuisden had
+   het dus nul metingen en toonde het eeuwig zijn standaardwaarde.
+
+Punt 2 was alleen vindbaar omdat de worker zijn uitvoer nu naar `worker.log` schrijft in
+dezelfde map als de config, zichtbaar via Voorkeuren → Worker. Een verborgen proces waarvan
+stdout naar `/dev/null` gaat, is niet te diagnosticeren — dat is dezelfde les als de hartslag
+van 21/08.
+
+## 2026-08-29 — Antwerp Fried Chicken: volledige pipeline + eerste echte store-aanmaak
+
+Lead `f5364396-b2a2-411e-a99d-1e01ccc3d42b`, Zuivelmarkt 24, 3500 Hasselt, BTW BE 0784461962.
+
+- **Research** vond het echte adres, BTW-nummer en het volledige productaanbod, en meldde
+  correct dat het de eigen site niet kon ophalen. Reden achterhaald: `afchasselt.be` en
+  `antwerpfriedchickenhasselt.be` hebben een kapotte TLS/SNI-configuratie (elke geautomatiseerde
+  client faalt op de handshake) en `http://www.afchasselt.be` toont enkel een doorverwijskaartje
+  naar Menute. Er ís dus geen eigen site om over te nemen. Wat wél te verifiëren viel (adres,
+  openingsuren, menucategorieën, vijf echte menuprijzen) staat als briefing in `notities`.
+- **Generatie** hield zich daaraan: exact die vijf prijzen op de site, geen enkele verzonnen.
+- **De review-loop draaide voor het eerst op een meerpagina-site** en deed precies wat hij moet:
+  eerste ronde afgekeurd omdat de footer openingsuren als feit vermeldde die research juist als
+  onbevestigd had gemarkeerd, tweede ronde goedgekeurd.
+
+**Twee globale stijlvoorkeuren waren nog vervuild van vóór de fix van 26/07.** Beide dateren van
+25/07, toen chat-edit élke instructie letterlijk in de globale tabel zette. Gevolg: een frituur
+kreeg een pagina "Onze realisaties" met drie projecten, en de reviewer hield de site daar
+vervolgens aan alsof het beleid was.
+- `Voeg een sectie "Onze realisaties" toe met 3 voorbeeldprojecten.` — verwijderd; er bestaat
+  geen algemene vorm van, een afhaalzaak heeft geen projecten.
+- De scroll-animatieregel noemde de menu-items van één klant ("diensten", "ontwerp"). De
+  bedoeling is wél algemeen, dus herschreven in plaats van verwijderd.
+De derde regel (geen emoji's) is van ná de fix, draagt "(gegeneraliseerd)" en is blijven staan.
+**Controleer die tabel als een gegenereerde site iets bevat dat nergens op slaat** —
+`worker/scripts/toon-voorkeuren.ts`.
+
+**De Shopify-store-aanmaak liep voor het eerst helemaal door.** De selectors waren geschreven
+tegen wat het Partner Dashboard geacht werd te tonen en hadden nog nooit gedraaid; de eerste
+echte poging strandde op stap één. Zes dingen bleken tegelijk fout — zie de kop van
+`worker/src/shopify/store-flow-config.ts` voor de volledige lijst, maar de belangrijkste:
+- Het dashboard is verhuisd naar **dev.shopify.com** en de knop heet **"Create store"**.
+- Die knop is een `<a>` naar `admin.shopify.com` — een ander origin — dus de job leest de href en
+  navigeert. Dat lost meteen een tweede probleem op: **het dashboard-id in die URL's is niet het
+  partner-organisatie-id**, en door het van die link te lezen hoeft er geen tweede id
+  geconfigureerd te worden dat kan gaan afwijken.
+- De formuliervelden zitten in een **shadow root**, dus `document.querySelectorAll` geeft een
+  leeg formulier terug. Playwright's locators gaan er wél doorheen.
+- **Een Shopify-plan is verplicht**, terwijl de verzendknop actief oogt zonder er een — gevonden
+  door te verzenden, niet door de pagina te lezen.
+- Succes is een redirect naar `admin.shopify.com/store/<handle>`; het myshopify-domein staat
+  nergens op de pagina en wordt uit de handle afgeleid.
+
+Resultaat: acht stappen, allemaal ok, winkel
+**`antwerp-fried-chicken-f5364396-ftuyoqau.myshopify.com`** aangemaakt en weggeschreven in
+`shopify_stores`. Er staat ook een handmatig aangemaakte `antwerp-fried-chicken-f5364396`
+van vlak daarvoor (uit het verkennen van de flow) — die mag weg.
+
+**De mapping site → Shopify is tegen echte output getest**, niet enkel tegen de fixture:
+`worker/scripts/proef-shopify-mapping.ts` draait `paginasVoorShopify`/`menuItemsVoorShopify` op
+de gegenereerde site en controleert op dode menu-items en weespagina's. Resultaat: 7 pages,
+juiste ouder-kindstructuur, home als storefront-root, geen weespagina's.
+
+**Wat er nog van jou nodig is om de winkel effectief te vullen** (één keer, en de code wacht er
+al op): er bestaat nog geen app in het Shopify Dev Dashboard. Maak er één aan
+(`dev.shopify.com/dashboard/<id>/apps` → Create app), installeer hem op de winkel, en zet
+client-id en client-secret in **Voorkeuren → Worker**. Daarna haalt `shopify-token.ts` zelf
+tokens op (client credentials grant, 24u geldig) en kan de `shopify_opbouw`-job de pagina's,
+het menu en het thema in de winkel zetten. **Ik vul die twee waarden bewust niet zelf in** —
+een client-secret aanmaken en wegschrijven is iets wat jij hoort te doen.
+
+De juridische kanttekening van 29/07 blijft staan: geautomatiseerd door het Partner Dashboard
+klikken staat vermoedelijk op gespannen voet met de Partner Program Agreement, en het risico is
+schorsing van het Partner-account.
+
 ## Known gaps (deliberate, not oversights)
 
 - **KBO Open Data import script doesn't exist.** `sourcing-run` reads from a
