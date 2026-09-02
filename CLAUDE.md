@@ -35,11 +35,13 @@ deployment, live-credential verification, and a couple of deliberately-external 
   access — Postgres checks table-level GRANTs first), which surfaced on 2026-07-24 as
   `permission denied for table X` on every table from the app. Fixed via
   `supabase/migrations/20260724000000_fix_public_grants.sql`, pushed live the same day.
-- **Edge Functions**: confirmed deployed — all 10 functions (`research`, `generatie`,
+- **Edge Functions**: confirmed deployed — 10 functions (`research`, `generatie`,
   `chat-edit-static`, `chat-edit-shopify`, `send-email`, `shopify-staff-invite`,
   `sourcing-run`, `track-and-serve`, `cleanup-storage`, `gmail-oauth-exchange`) show
   `ACTIVE` on the linked project, with `ANTHROPIC_API_KEY` and the rest of the secrets
-  table set.
+  table set. **Twee staan er nog niet op**: `lees-afbeelding` en (sinds 02/09)
+  `domein-koppelen`. `track-and-serve` draait live ook nog in zijn oude vorm — zie de
+  sectie van 2026-09-02 voor het deploy-commando en waarom dat bewust wacht.
 - **`.env.local`**: `NEXT_PUBLIC_SUPABASE_URL`/`NEXT_PUBLIC_SUPABASE_ANON_KEY`/
   `ANTHROPIC_API_KEY` set locally, plus (2026-07-24) `NEXT_PUBLIC_DEMO_HOSTING_URL` and
   `NEXT_PUBLIC_APP_URL` (pointing straight at the deployed `track-and-serve` function and
@@ -762,6 +764,212 @@ De juridische kanttekening van 29/07 blijft staan: geautomatiseerd door het Part
 klikken staat vermoedelijk op gespannen voet met de Partner Program Agreement, en het risico is
 schorsing van het Partner-account.
 
+## 2026-09-01 — modelkeuze per lead + SEO (branch `feature/multipage-generator`)
+
+**Modelkeuze per lead.** Het model zat vast achter één env-var (`MODEL_KWALITEIT`, fallback
+`claude-opus-4-8`), overal gedupliceerd. Nu: nieuwe kolom `leads.ai_model` (migratie
+`20260901000000_lead_ai_model.sql`) met drie keuzes — Opus 4.8, Sonnet 5, Fable 5 — en een
+`<select>` in het leadpaneel. `NULL` = ongewijzigd gedrag (val terug op de env-var).
+
+- **`resolveModel(aiModel, { maxTier })`** staat in béide `anthropic.ts`-kopieën. De `maxTier`
+  bestaat omdat Fable enkel de site zelf mag schrijven: research, review, chat-edit (beide) en
+  het uitlezen van een aangeleverde foto worden gecapt op Opus. Kiest een lead Sonnet, dan draait
+  álles op Sonnet — het plafond schaalt enkel naar beneden.
+- **De prijstabellen moesten mee.** `calculateKostEur()` gooit op een onbekend model, dus zonder
+  de rijen voor Sonnet/Fable zou de eerste lead die ze kiest middenin een job crashen. Prijzen
+  geverifieerd tegen de officiële modellijst, niet uit het geheugen: Sonnet 5 $2/$10, Fable 5
+  $10/$50 per MTok.
+- `MODEL_SOURCING` (Haiku, lead-sourcing) is bewust ongemoeid gelaten.
+
+**De hervattingslus van generatie was al stuk, en is vervangen door streaming.** `generate-demo.ts`
+hervatte een afgekapte site vanaf een **assistant-prefill**. Prefill is door Anthropic verwijderd en
+geeft een 400 op Opus 4.8 — het model dat hier al draaide — én op Sonnet 5 en Fable 5. Een site
+boven de 21.000 outputtokens faalde dus, alleen viel dat niet op zolang alles eronder bleef. De
+motivering in de code ("niet-streamend vanwege Supabase's invocation-limiet") was bovendien
+achterhaald sinds generatie naar de worker verhuisde. Nu: één streamende call,
+`MAX_OUTPUT_TOKENS` 21.000 → 64.000, en de hele vervolg-lus plus `knipNaLaatsteVolledigeSectie()`
+zijn weg. `stop_reason: "refusal"` en `"max_tokens"` geven nu een expliciete foutmelding.
+
+**SEO.** Gegenereerde sites hadden enkel `<title>`. Toegevoegd, volgens dezelfde scheiding als de
+rest van de site-builder — het model schrijft inhoud, de code garandeert vorm:
+- **Meta description**: door het model per pagina geschreven (`meta_omschrijving` in `===META===`),
+  in code afgekapt op een woordgrens of teruggevallen op titel + bedrijfsnaam. Zacht falen.
+- **Canonical + Open Graph**: volledig in code, uit het nieuwe `BouwOpties.seo`-blok. Zonder
+  `DEMO_HOSTING_URL` blijven die tags weg in plaats van half ingevuld — een halve URL is erger dan
+  geen. `og:image` is het geüploade logo, anders een sector-passende bankfoto.
+- **LocalBusiness JSON-LD**, enkel op `index.html`, met een sector→schema.org-typemapping. Het
+  adres blijft één tekstveld (het `leads`-schema heeft geen gestructureerd adres), dus geen
+  `PostalAddress`.
+- **sitemap.xml + robots.txt** worden per request opgebouwd door `track-and-serve`, niet bij het
+  genereren in Storage gezet — zo kloppen ze automatisch met wélke versie `actief` is, ook na een
+  terugdraai. Beveiligde pagina's blijven uit de sitemap.
+- **Alt-tekst is nu een harde build-check**, net als een dode link, want ook onzichtbaar op een
+  screenshot. Om het model niet te straffen voor bankfoto's vult `vulAltTeksten()` eerst de
+  omschrijving uit de afbeeldingenbank in; enkel écht onbeschreven beeld laat de build falen.
+
+**Bug meegefixt**: `regenerateWithFeedback()` accepteerde `bestanden` maar gaf het niet door aan
+`genereerSite()`. Elke hergeneratie in de review-loop verloor dus de bestandslijst — waardoor een
+link naar een geüpload document de build kon laten falen (of een logo verdween).
+
+**Geverifieerd**: worker-typecheck + 62 unit-tests (was 51), `deno check` op de vier gewijzigde
+Edge Functions, en tsc + eslint op de app. De twee gedupliceerde `site-builder.ts`/`image-bank.ts`
+zijn met `Compare-Object` gecontroleerd — ze verschillen enkel in de header en de import-extensie.
+
+**NIET geverifieerd, en dat is belangrijk voor wie hier verder werkt:**
+- ~~**De migratie is niet gepusht.**~~ Achterhaald: `leads.ai_model` bestaat wél live
+  (nagekeken op 2026-09-02 met een echte select op de kolom). De twee migraties van
+  01/09 en 02/09 voor `klanten` stonden op dat moment nog open — zie de sectie hieronder.
+- **Geen echte generatie gedraaid.** De SEO-tags, de streamende call en het nieuwe
+  `meta_omschrijving`-veld in de prompt zijn niet tegen een levend model getest. De streaming-fix
+  is gebaseerd op de officiële API-documentatie, niet op een testcall die de 400 aantoonde.
+- **Het leadpaneel is niet aangeklikt** — zelfde reden als bij het Site-interactie-paneel: de
+  testbrowser heeft geen sessie. De app boot wel schoon op het loginscherm, zonder console-fouten.
+
+## 2026-09-02 — klantpakketten, verkoop-tracking en hosting op een echt domein
+
+De laatste twee onderdelen van het plan van 01/09. Rode draad: de app legt vast wát er
+afgesproken is en wáár de site staat, maar dwingt niets af — dat past bij een app die
+enkel intern gebruikt wordt en overal al een mens in de lus heeft.
+
+### Pakket & verkoop (`klanten`)
+
+Vier opties: **aankoop** (eigendomsoverdracht, wij hosten niet) en **bundel 1/2/3** (wij
+hosten, oplopend aantal inbegrepen wijzigingen). De aantallen staan in
+`app/src/lib/pakketten.ts` als voorlopige waarden en worden bij het promoveren als
+startwaarde in `klanten.wijzigingen_inbegrepen` gezet — daarna per klant aanpasbaar, want
+een afwijkende afspraak hoort geen code-wijziging te zijn.
+
+- `chat-edit-static`/`chat-edit-shopify` roepen na een geslaagde edit
+  `tel_klant_wijziging(lead_id)` aan. Die functie doet niets als de lead nog geen klant is
+  of op `aankoop` staat, zodat de gratis demo-iteratieronde niet meetelt.
+- **De teller telt, hij blokkeert niet.** Een zesde chat-edit op een bundel van vijf gaat
+  gewoon door; het paneel zet het getal in het oranje. Afdwingen zou een aparte, grotere
+  beslissing zijn (en een klant die één keer over zijn bundel gaat is een gesprek, geen
+  foutmelding).
+- "Nieuwe periode starten" zet de teller handmatig op 0. Geen cron: er is geen
+  betaalcyclus in dit systeem om op te reageren.
+
+### Hosting op een domein
+
+**Geen aparte `site_domeinen`-tabel, anders dan het plan schetste.** Een klant heeft
+precies één definitief domein, `klanten.definitief_domein` bestond al en droeg sinds
+01/09 ook `domein_type`. Twee tabellen die allebei "het domein van deze klant" beweren, is
+precies hoe ze uit elkaar gaan lopen. Migratie `20260902000000` voegt enkel de
+koppelingstoestand toe (`cloudflare_hostname_id`, `domein_status`, `domein_verificatie`,
+`domein_gekoppeld_op`) plus een index voor de Host-opzoeking.
+
+- **`track-and-serve` heeft er een tweede ingang bij.** Komt een request niet op onze
+  eigen hostnaam binnen, dan wordt de lead opgezocht via `klanten.definitief_domein` en
+  staat de site in de root (`/`, `/contact.html`) in plaats van onder `/{leadId}/`. De
+  gegenereerde pagina's linken al relatief en de widget-endpoints waren al relatief, dus
+  dezelfde bestanden werken in beide vormen zonder aanpassing.
+- **De vormbeslissing zit in `_shared/site-domein.ts`, apart en puur**, met 11 tests
+  (`cd supabase && deno test functions/_shared/site-domein.test.ts`). Dat is bewust: een
+  verkeerd basispad gooit geen exception, het geeft een formulier dat naar niets post.
+  Eén van die tests dekt het subtiele geval — **de vaste oorsprong is zélf een eigen
+  domein** (het Supabase custom-domain). Zonder die vergelijking met `DEMO_HOSTING_URL`
+  zou elke gewone demo-link als klantdomein worden opgezocht en 404'en.
+- **`domein_status` is géén voorwaarde om te serveren.** Dat veld toont de voortgang van
+  de certificaataanvraag in de app; dat een request überhaupt op dat domein binnenkomt is
+  het echte bewijs dat de koppeling werkt. Een status die nog niet gepolld is mag geen 404
+  geven op een site die aantoonbaar bereikbaar is.
+- **Canonical/og:url/JSON-LD worden bij het serveren herschreven**, niet bij het
+  genereren: het domein bestaat meestal nog niet als de site gemaakt wordt, en een
+  canonical die naar de functie-URL wijst vertelt Google dat díe URL de echte is — precies
+  omgekeerd aan wat een eigen domein moet doen.
+- `bouwSitemap`/`bouwRobotsTxt` nemen nu één basis-URL in plaats van leadId + hostingBase,
+  om dezelfde reden: op een eigen domein zit er geen lead-id in het pad. Meteen
+  meegenomen: de home canonicaliseert naar de map-URL (`…/`) in plaats van
+  `…/index.html`, en de sitemap zegt nu hetzelfde — die twee moeten hetzelfde adres
+  aanwijzen.
+- **`domein-koppelen`** (nieuwe Edge Function) roept Cloudflare's custom-hostnames-API
+  aan voor een eigen klantdomein. Een bureau-subdomein raakt Cloudflare niet: dat valt
+  onder ons wildcard-record en is meteen actief. Aanmaken zoekt eerst of het hostname al
+  bestaat, zodat een tweede klik op "Koppelen" geen tweede aanvraag maakt.
+
+### Site exporteren (aankoop)
+
+"Aankoop" hoort niet bij domein-hosting — daar gaat er juist een rij uit onze routering
+weg. In plaats daarvan levert het paneel de actieve versie als zip: alle pagina's, de map
+`bestanden/`, en `LEESMIJ.txt`.
+
+- **De zip-schrijver is met de hand geschreven** (`app/src/lib/zip.ts`, "stored", geen
+  compressie) omdat de enige gebruiker deze export is en elke dependency ook in de
+  Windows-installer belandt. Geverifieerd door een echte zip te maken en die met Windows'
+  eigen `Expand-Archive` uit te pakken: vier bestanden, inclusief een submap en een
+  bestand van 0 bytes, met kloppende inhoud en CRC.
+- **Formulieren, reviews en downloads werken na een export niet meer**, en dat is niet op
+  te lossen zonder een volledig portable backend: ze draaien op `track-and-serve` met de
+  service-role (honeypot, rate limiting, moderatie). De `data-endpoint`-attributen worden
+  daarom verwijderd, zodat de widget zelf "nog niet gekoppeld" toont in plaats van stil te
+  falen. Staat ook in LEESMIJ.txt — liever in het pakket dan enkel in een verkoopgesprek.
+- **Beveiligde pagina's gaan NIET mee**, zelfde afweging als bij het porten naar Shopify:
+  als los bestand zou de toegangscode er gewoon af zijn, en dat is een stillere fout dan
+  ze weglaten. LEESMIJ.txt noemt ze bij naam, zodat het een keuze is en geen verrassing.
+  **Als je liever hebt dat ze wél meegaan, is dat één regel** in `export-actions.ts`.
+- Canonical/OG worden herschreven naar het nieuwe domein als dat al ingevuld is, en anders
+  weggelaten — een ontbrekende canonical is neutraal, een foute niet.
+
+### Geverifieerd
+
+- 63 worker-tests (was 62), 38 site-builder-tests, 11 nieuwe deno-tests op de routering.
+- `deno check` op `track-and-serve` en `domein-koppelen`; `tsc --noEmit` + eslint schoon op
+  de app; `npm run typecheck` schoon op de worker.
+- `worker/scripts/toon-lead-model.ts` (nieuw) gedraaid tegen de echte database: toont per
+  lead welk model elke stap gebruikt en tast meteen de prijstabel af, zodat een ontbrekende
+  rij hier opduikt in plaats van middenin een job.
+- De zip, uitgepakt door Windows zelf (zie hierboven).
+- **Beide `klanten`-migraties zijn gepusht** (`supabase db push`, 2026-09-02) en daarna
+  nagekeken met een echte select op elke nieuwe kolom plus een aanroep van
+  `tel_klant_wijziging`.
+- **E2E staat op 7 tests, groen tegen het echte project** (`cd app && npm run e2e`). De
+  twee nieuwe dekken de modelkeuze en het pakketblok. Dat laatste is meteen het eerste
+  paneel van deze reeks dat wél in een draaiende browser is aangeklikt: de test opent het
+  blok, leest "Bundel 2" en "2 van 3" af, wijzigt de betaalstatus en controleert dat die
+  in de database staat.
+
+### Niet geverifieerd — belangrijk voor wie hier verder werkt
+
+- **De Edge Functions zijn nog niet gedeployed.** `track-and-serve` (gewijzigd) en
+  `domein-koppelen` (nieuw) draaien live nog in hun oude vorm. Bewust: in de volgorde
+  hieronder komt dat pas na de Cloudflare- en Supabase-domeinstappen, en `domein-koppelen`
+  kan zonder die secrets toch niets. Eén commando als het zover is:
+  `supabase functions deploy track-and-serve domein-koppelen`.
+- **Het domeinblok zelf is niet aangeklikt.** De e2e-test dekt het pakketgedeelte; koppelen
+  vraagt een echt domein en een echte Cloudflare-zone.
+- **De Cloudflare-aanroepen zijn nooit tegen een echt account gedraaid.** Ze zijn
+  geschreven tegen de gedocumenteerde v4-API; er is geen Cloudflare-zone met for-SaaS in
+  deze omgeving. Reken op één ronde bijstellen — daarom geeft de functie een foutantwoord
+  integraal door in plaats van samengevat.
+- **De platformbug van 25/07 is nog steeds niet weerlegd of bevestigd.** Dat een eigen
+  domein de `text/plain`+sandbox-CSP van Supabase' edge-gateway omzeilt, blijft een
+  hypothese. **Dit is de belangrijkste test van dit hele onderdeel en de goedkoopste:** zet
+  eerst één bureau-subdomein op en open het in een echte browser (niet curl — de bug toont
+  zich enkel bij een echte GET). Werkt dat niet, kom dan terug vóór je geld uitgeeft aan
+  Cloudflare for SaaS.
+
+### Wat jij nog moet regelen (niets hiervan kan ik voor je doen)
+
+Volgorde is belangrijk — stap 5 is een beslismoment dat je geld kan besparen.
+
+1. Cloudflare-account, `yudexstudios.com` als zone toevoegen (nameservers omzetten bij je
+   registrar — kijk eerst na welke DNS-records er nu al staan, bv. MX voor e-mail).
+2. Supabase custom domain add-on inschakelen op een vast subdomein, bv.
+   `sites-oorsprong.yudexstudios.com`, en `DEMO_HOSTING_URL` +
+   `NEXT_PUBLIC_DEMO_HOSTING_URL` daarnaar laten wijzen.
+3. Wildcard-DNS `*.yudexstudios.com` (proxied) naar dat adres.
+4. De functies deployen: `supabase functions deploy track-and-serve domein-koppelen`.
+   (De migraties staan er al op sinds 02/09.)
+5. **Eerste test**: één testlead met een bureau-subdomein, openen in een echte browser.
+   Rendert de pagina normaal? Dan is de platformbug inderdaad weg.
+6. Werkt stap 5 niet, stop hier en kom terug. Werkt het wel: Cloudflare for SaaS
+   inschakelen (controleer zelf de actuele prijs en of het op jullie plan zit — dat kon ik
+   niet live nakijken), een API-token maken met rechten op enkel die zone, en zetten:
+   ```
+   supabase secrets set CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ZONE_ID=... CLOUDFLARE_CNAME_DOEL=... --project-ref <ref>
+   ```
+7. Vul de echte aantallen wijzigingen per bundel in `app/src/lib/pakketten.ts` in.
+
 ## Known gaps (deliberate, not oversights)
 
 - **KBO Open Data import script doesn't exist.** `sourcing-run` reads from a
@@ -787,7 +995,7 @@ schorsing van het Partner-account.
   die moet manueel aangemaakt worden; `chat-edit-shopify` en de rate limiter zijn daardoor nog
   niet tegen een levende winkel gedraaid.
 - ~~**No E2E test exists yet.**~~ Gebouwd op 2026-07-29: `app/e2e/critical-path.spec.ts`,
-  4 tests, **groen tegen het echte project** (`cd app && npm run e2e`). Dekt: lead verschijnt
+  intussen 7 tests, **groen tegen het echte project** (`cd app && npm run e2e`). Dekt: lead verschijnt
   in de lijst → paneel opent → klik op het geblurde deel sluit → een job die tijdens het kijken
   wordt ingestoken verschijnt via Realtime → een mislukte job toont zijn échte foutmelding
   (regressietest voor de "non-2xx status code"-bug van juli) → Voorkeuren toont de regels die

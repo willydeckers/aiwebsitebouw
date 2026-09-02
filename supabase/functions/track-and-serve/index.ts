@@ -8,13 +8,23 @@ import {
   toegangCookieHeader,
   toegangFormulier,
 } from "../_shared/site-toegang.ts";
+import { bouwRobotsTxt, bouwSitemap } from "../_shared/site-builder.ts";
+import { bepaalRouteVorm } from "../_shared/site-domein.ts";
 
 // Spec section 2: the public hosting layer. No auth, no CORS preflight
 // needed — this is loaded directly by a lead's browser, not called via
 // supabase-js from the app. Routes, distinguished by path:
 //   /{leadId}/               -> serve index.html of the actieve site_versions
 //   /{leadId}/{bestand}.html -> serve that page of the same version
+//   /{leadId}/sitemap.xml    -> sitemap of the actieve versie, opgebouwd per request
+//   /{leadId}/robots.txt     -> robots.txt die naar die sitemap wijst
 //   /t/{leadId}              -> log the open, notify Warre/Garen once, redirect above
+//
+// Dezelfde functie bedient ook de gekoppelde domeinen (bureau-subdomein of
+// het eigen domein van de klant). Daar zit geen lead-id in het pad en staat
+// de site in de root: /, /contact.html, /sitemap.xml. Welke lead dat is,
+// komt uit `klanten.definitief_domein` via de Host-header — zie bepaalRoute
+// onderaan, waar beide vormen op dezelfde interne route uitkomen.
 //
 // The trailing slash on the first route is load-bearing, not cosmetic: the
 // generated pages link to each other with plain relative hrefs
@@ -295,12 +305,70 @@ async function handleToegang(
   });
 }
 
+/**
+ * sitemap.xml en robots.txt worden hier opgebouwd in plaats van bij het
+ * genereren in Storage gezet: dan blijven ze automatisch kloppen met wélke
+ * versie op dit moment `actief` is, ook na een terugdraai naar een oudere.
+ */
+async function handleSeoBestand(
+  supabase: ReturnType<typeof createServiceClient>,
+  leadId: string,
+  soort: "sitemap" | "robots",
+  basisUrl: string | null,
+): Promise<Response> {
+  // Zonder basis-URL zouden de loc's relatief of half ingevuld zijn; dan is
+  // geen sitemap beter dan een verkeerde (zelfde regel als de OG-tags).
+  if (!basisUrl) {
+    return new Response("Geen publieke basis-URL geconfigureerd (DEMO_HOSTING_URL).", { status: 404 });
+  }
+
+  if (soort === "robots") {
+    return new Response(bouwRobotsTxt(basisUrl), {
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
+  }
+
+  const { data: siteVersion } = await supabase
+    .from("site_versions")
+    .select("paginas")
+    .eq("lead_id", leadId)
+    .eq("status", "actief")
+    .maybeSingle();
+
+  if (!siteVersion) {
+    return new Response("Nog geen actieve versie beschikbaar voor deze lead.", { status: 404 });
+  }
+
+  // paginas is null op een oude één-bestand-versie — die heeft enkel een home.
+  const paginas = (siteVersion.paginas ?? [{ bestand: "index.html" }]) as Pagina[];
+  return new Response(bouwSitemap(paginas, basisUrl), {
+    headers: { "Content-Type": "application/xml; charset=utf-8" },
+  });
+}
+
+/**
+ * De canonical, og:url en de JSON-LD-URL worden bij het genereren ingebakken,
+ * en wijzen dan naar de functie-URL — het eigen domein bestaat op dat moment
+ * meestal nog niet. Een canonical die naar een ander adres wijst dan waar de
+ * bezoeker staat, vertelt een zoekmachine dat díe andere URL de echte is:
+ * precies het omgekeerde van wat een eigen domein moet doen. Vandaar
+ * herschrijven bij het serveren in plaats van hergenereren bij het koppelen.
+ *
+ * Een gewone string-vervanging, geen regex: het gaat om één exact voorvoegsel
+ * en dat hoeft niet ontsnapt te worden.
+ */
+function herschrijfSeoUrls(html: string, van: string, naar: string): string {
+  return html.split(van).join(naar);
+}
+
 async function handleServe(
   supabase: ReturnType<typeof createServiceClient>,
   req: Request,
   leadId: string,
   bestand: string | null,
   basisPad: string,
+  /** Gezet zodra deze request via een eigen domein binnenkwam. */
+  seoHerschrijving: { van: string; naar: string } | null,
 ): Promise<Response> {
   const { data: lead } = await supabase
     .from("leads")
@@ -381,7 +449,65 @@ async function handleServe(
     return new Response(`Kon demo-bestand niet ophalen: ${error?.message}`, { status: 500 });
   }
 
-  return new Response(await file.text(), { headers: { "Content-Type": "text/html; charset=utf-8" } });
+  const html = await file.text();
+  return new Response(
+    seoHerschrijving ? herschrijfSeoUrls(html, seoHerschrijving.van, seoHerschrijving.naar) : html,
+    { headers: { "Content-Type": "text/html; charset=utf-8" } },
+  );
+}
+
+/**
+ * Wat de rest van deze functie nodig heeft, ongeacht via welke URL de request
+ * binnenkwam. De vormbeslissing staat in _shared/site-domein.ts (pure, getest);
+ * hier komt enkel de opzoeking bij die de database raakt.
+ *
+ * Er wordt bewust NIET geëist dat `domein_status` al op 'actief' staat: dat
+ * veld toont de voortgang van de certificaataanvraag in de app. Dat een request
+ * hier überhaupt op dit domein aankomt, is het echte bewijs dat de koppeling
+ * werkt — een status die nog niet gepolld is, mag geen 404 zijn op een site die
+ * aantoonbaar bereikbaar is.
+ */
+type Route = {
+  leadId: string;
+  segmenten: string[];
+  basisPad: string;
+  basisUrl: string | null;
+  seoHerschrijving: { van: string; naar: string } | null;
+};
+
+async function bepaalRoute(
+  supabase: ReturnType<typeof createServiceClient>,
+  req: Request,
+  url: URL,
+  segments: string[],
+): Promise<Route | null> {
+  const hostingBase = (Deno.env.get("DEMO_HOSTING_URL") ?? "").replace(/\/$/, "");
+  const host = req.headers.get("host") ?? url.host;
+
+  const vorm = bepaalRouteVorm(host, url.pathname, segments, hostingBase);
+  if (!vorm) return null;
+
+  if (vorm.soort === "platform") {
+    return { ...vorm, seoHerschrijving: null };
+  }
+
+  const { data: klant } = await supabase
+    .from("klanten")
+    .select("lead_id")
+    .eq("definitief_domein", vorm.host)
+    .maybeSingle();
+  if (!klant) return null;
+
+  return {
+    leadId: klant.lead_id,
+    segmenten: vorm.segmenten,
+    basisPad: vorm.basisPad,
+    basisUrl: vorm.basisUrl,
+    // Enkel zinvol als we weten hoe de ingebakken URL's eruitzien.
+    seoHerschrijving: hostingBase
+      ? { van: `${hostingBase}/${klant.lead_id}/`, naar: `${vorm.basisUrl}/` }
+      : null,
+  };
 }
 
 Deno.serve(async (req) => {
@@ -394,34 +520,38 @@ Deno.serve(async (req) => {
     if (segments[0] === "t" && segments[1]) {
       return await handleTrack(supabase, segments[1], url);
     }
-    if (segments[0]) {
-      const leadId = segments[0];
-      // Everything the generated pages call back into lives under the same
-      // /{leadId}/ prefix, so one base path covers pages, uploads, the form
-      // endpoint and the access gate.
-      const basisPad = url.pathname.slice(0, url.pathname.indexOf(leadId) + leadId.length) + "/";
 
-      if (segments[1] === "formulier" && req.method === "POST") {
-        return await handleFormulier(supabase, req, leadId);
-      }
-      if (segments[1] === "reviews") {
-        return await handleReviews(supabase, leadId);
-      }
-      if (segments[1] === "toegang" && req.method === "POST") {
-        return await handleToegang(supabase, req, leadId, basisPad);
-      }
-      if (segments[1] === "bestanden" && segments[2]) {
-        return await handleBestand(supabase, leadId, segments[2]);
-      }
+    const route = await bepaalRoute(supabase, req, url, segments);
+    if (!route) return new Response("Not found", { status: 404 });
 
-      // `/{leadId}` (no trailing slash, no page) can't serve the site
-      // directly — see the header comment on relative-link resolution.
-      if (!segments[1] && !url.pathname.endsWith("/")) {
-        return Response.redirect(`${url.origin}${url.pathname}/${url.search}`, 302);
-      }
-      return await handleServe(supabase, req, leadId, segments[1] ?? null, basisPad);
+    const { leadId, segmenten, basisPad } = route;
+
+    if (segmenten[0] === "formulier" && req.method === "POST") {
+      return await handleFormulier(supabase, req, leadId);
     }
-    return new Response("Not found", { status: 404 });
+    if (segmenten[0] === "reviews") {
+      return await handleReviews(supabase, leadId);
+    }
+    if (segmenten[0] === "toegang" && req.method === "POST") {
+      return await handleToegang(supabase, req, leadId, basisPad);
+    }
+    if (segmenten[0] === "bestanden" && segmenten[1]) {
+      return await handleBestand(supabase, leadId, segmenten[1]);
+    }
+    if (segmenten[0] === "sitemap.xml") {
+      return await handleSeoBestand(supabase, leadId, "sitemap", route.basisUrl);
+    }
+    if (segmenten[0] === "robots.txt") {
+      return await handleSeoBestand(supabase, leadId, "robots", route.basisUrl);
+    }
+
+    // `/{leadId}` (no trailing slash, no page) can't serve the site
+    // directly — see the header comment on relative-link resolution. Op een
+    // eigen domein bestaat dat geval niet: daar is de root al "/".
+    if (!segmenten[0] && !url.pathname.endsWith("/")) {
+      return Response.redirect(`${url.origin}${url.pathname}/${url.search}`, 302);
+    }
+    return await handleServe(supabase, req, leadId, segmenten[0] ?? null, basisPad, route.seoHerschrijving);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return new Response(message, { status: 500 });

@@ -12,7 +12,8 @@ import {
   type DuurSchattingen,
 } from "@/lib/job-duur";
 import { createClient } from "@/lib/supabase/client";
-import { updateLeadGegevens, updateLeadNotities } from "./actions";
+import { AI_MODELLEN, STANDAARD_AI_MODEL, type AiModel } from "@/lib/ai-modellen";
+import { updateLeadAiModel, updateLeadGegevens, updateLeadNotities } from "./actions";
 import { StatusBadge } from "./status-badge";
 import { PipelineButton } from "./pipeline-button";
 import { DemoPreview } from "./demo-preview";
@@ -21,6 +22,7 @@ import { CostSummaryView } from "./cost-summary-view";
 import { DeleteLeadButton } from "./delete-lead-button";
 import { VersionHistory } from "./version-history";
 import { SiteInteractiePanel } from "./site-interactie-panel";
+import { KlantPanel } from "./klant-panel";
 import { StoreAanmaakPanel } from "./store-aanmaak-panel";
 
 export function LeadDetailPanel({
@@ -40,6 +42,8 @@ export function LeadDetailPanel({
   const [contactEmail, setContactEmail] = useState(lead.contact_email ?? "");
   const [gegevensError, setGegevensError] = useState<string | null>(null);
   const [gegevensSaving, setGegevensSaving] = useState(false);
+  const [modelError, setModelError] = useState<string | null>(null);
+  const [modelSaving, setModelSaving] = useState(false);
   const [siteVersions, setSiteVersions] = useState<SiteVersion[]>([]);
   const [reviewLog, setReviewLog] = useState<ReviewLogEntry[]>([]);
   const [costSummary, setCostSummary] = useState<CostSummary | null>(null);
@@ -146,6 +150,17 @@ export function LeadDetailPanel({
     const error = await updateLeadNotities(lead.id, notities);
     setSaveError(error);
     setSaving(false);
+    if (!error) onChanged();
+  }
+
+  const gekozenModel =
+    AI_MODELLEN.find((m) => m.id === (lead.ai_model ?? STANDAARD_AI_MODEL)) ?? AI_MODELLEN[0];
+
+  async function handleModelChange(model: AiModel) {
+    setModelSaving(true);
+    const error = await updateLeadAiModel(lead.id, model);
+    setModelError(error);
+    setModelSaving(false);
     if (!error) onChanged();
   }
 
@@ -291,6 +306,38 @@ export function LeadDetailPanel({
           ) : null}
         </section>
 
+        <section className="mt-6 space-y-2 text-sm">
+          <h3 className="font-medium text-slate-700">AI-model</h3>
+
+          <div className="space-y-1">
+            <select
+              id="lead-ai-model"
+              aria-label="AI-model voor deze lead"
+              value={lead.ai_model ?? STANDAARD_AI_MODEL}
+              onChange={(e) => handleModelChange(e.target.value as AiModel)}
+              disabled={modelSaving}
+              className="w-full rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200 disabled:opacity-60"
+            >
+              {AI_MODELLEN.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-slate-500">{gekozenModel.uitleg}</p>
+          </div>
+
+          <p className="text-xs text-slate-400">
+            Geldt vanaf de volgende pipeline-stap — een al gegenereerde site verandert niet.
+          </p>
+
+          {modelSaving ? (
+            <p className="text-xs text-slate-400">Opslaan...</p>
+          ) : modelError ? (
+            <p className="text-xs text-red-600">{modelError}</p>
+          ) : null}
+        </section>
+
         <section className="mt-6">
           {lead.klant_type ? (
             <p className="text-sm text-slate-600">
@@ -298,7 +345,7 @@ export function LeadDetailPanel({
               {lead.shopify_store_id ? ` (store: ${lead.shopify_store_id})` : ""}
             </p>
           ) : (
-            <ConvertButton leadId={lead.id} onChanged={onChanged} />
+            <ConvertButton leadId={lead.id} bedrijfsnaam={lead.bedrijfsnaam} onChanged={onChanged} />
           )}
         </section>
 
@@ -429,6 +476,8 @@ export function LeadDetailPanel({
         <VersionHistory leadId={lead.id} versions={siteVersions} onChanged={onChanged} />
 
         <SiteInteractiePanel leadId={lead.id} />
+
+        <KlantPanel leadId={lead.id} bedrijfsnaam={lead.bedrijfsnaam} klantType={lead.klant_type} />
 
         <StoreAanmaakPanel leadId={lead.id} klantType={lead.klant_type} onChanged={onChanged} />
 

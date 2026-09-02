@@ -127,13 +127,33 @@ export const IMAGE_BANK: BankAfbeelding[] = [
   },
 ];
 
+/** De foto's waarvan het onderwerp bij déze lead past. Leeg = werk met kleurvlakken. */
+export function passendeAfbeeldingen(sector: string, briefing?: string | null): BankAfbeelding[] {
+  const zoektekst = `${sector} ${briefing ?? ""}`.toLowerCase();
+  return IMAGE_BANK.filter((a) => a.trefwoorden.some((t) => zoektekst.includes(t)));
+}
+
+/** Beeld voor og:image wanneer de klant zelf geen logo aanleverde. */
+export function standaardOgAfbeelding(sector: string, briefing?: string | null): string | null {
+  return passendeAfbeeldingen(sector, briefing)[0]?.url ?? null;
+}
+
+/**
+ * Zoekt de bank-entry bij een URL op het Unsplash-foto-id, niet op de hele
+ * URL — de generator mag de query-parameters (formaat, uitsnede) aanpassen.
+ */
+export function zoekBankAfbeelding(url: string): BankAfbeelding | null {
+  const id = /photo-[a-z0-9-]+/i.exec(url)?.[0];
+  if (!id) return null;
+  return IMAGE_BANK.find((a) => a.url.includes(id)) ?? null;
+}
+
 /**
  * The image guidance for one lead: only the photos whose subject actually
  * matches this business, or an explicit "use colour blocks" when none do.
  */
 export function bouwImageBankPrompt(sector: string, briefing?: string | null): string {
-  const zoektekst = `${sector} ${briefing ?? ""}`.toLowerCase();
-  const passend = IMAGE_BANK.filter((a) => a.trefwoorden.some((t) => zoektekst.includes(t)));
+  const passend = passendeAfbeeldingen(sector, briefing);
 
   if (passend.length === 0) {
     return `Afbeeldingen: er zijn voor deze sector GEEN geschikte foto's beschikbaar. Gebruik dus

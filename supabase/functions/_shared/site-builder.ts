@@ -4,8 +4,8 @@
 // Duplicated verbatim in worker/src/shared/site-builder.ts — see the note in
 // sector-styles.ts on why there's no shared module across the Deno/Node
 // boundary. The two copies differ in exactly two places: this header, and the
-// import specifier below (Deno wants ./site-widgets.ts, Node/tsx wants
-// ./site-widgets.js). Everything else is byte-identical; keep it that way.
+// import specifiers below (Deno wants ./x.ts, Node/tsx wants ./x.js).
+// Everything else is byte-identical; keep it that way.
 
 // Why the model doesn't just emit N finished HTML files: it can't be trusted to
 // repeat a navigation bar and footer byte-for-byte across four pages, nor to
@@ -16,6 +16,7 @@
 // property of the code, not of the model's diligence, and internal links are
 // resolved-or-rejected here before anything reaches Storage.
 
+import { zoekBankAfbeelding } from "./image-bank.ts";
 import {
   WIDGET_PROMPT,
   WIDGET_RUNTIME,
@@ -43,6 +44,11 @@ export type PaginaMeta = {
    * has presented the lead's access code. Absent = "publiek".
    */
   toegang?: "publiek" | "beveiligd";
+  /**
+   * Zoekmachine-omschrijving voor déze pagina. Door het model geschreven (het
+   * is inhoud), maar in code afgekapt/aangevuld — zie valideerMetaOmschrijving.
+   */
+  meta_omschrijving?: string | null;
 };
 
 /** The model's output, parsed. This is what gets stored as `bron.json` next to
@@ -142,6 +148,7 @@ export function parseSiteBron(raw: string): SiteBron {
       nav_label: pagina.nav_label,
       ouder: pagina.ouder ?? null,
       toegang: pagina.toegang ?? "publiek",
+      meta_omschrijving: pagina.meta_omschrijving ?? null,
     };
   });
 
@@ -180,31 +187,13 @@ export function parseSiteBron(raw: string): SiteBron {
 }
 
 /**
- * Highest max_tokens the Anthropic SDK still allows on a NON-streaming call
- * (it refuses anything it estimates could run past 10 minutes:
- * 3600 * max_tokens / 128000 > 600). Streaming would lift that, but an
- * Edge Function streaming tens of thousands of SSE events runs into
- * Supabase's per-invocation resource limit instead — so generation stays
- * non-streaming and gets a continuation call when it needs more room.
+ * Ruim genoeg voor een volledige site van 4-6 pagina's in één antwoord.
+ * Vereist een STREAMENDE call: de SDK weigert een niet-streamende call die
+ * ze boven de 10 minuten schat (3600 * max_tokens / 128000 > 600). Dat is
+ * ook waarom er geen vervolg-call meer is — die hervatte vroeger vanaf een
+ * assistant-prefill, en prefill wordt door de huidige modellen geweigerd.
  */
-export const MAX_OUTPUT_TOKENS = 21000;
-
-/**
- * Cuts a truncated answer back to the last COMPLETE section. A response that
- * stopped on max_tokens ends mid-section; that partial section is thrown away
- * here so a continuation call (which resumes from this exact text as an
- * assistant prefill) rewrites it in full rather than splicing two halves of
- * one page together.
- */
-export function knipNaLaatsteVolledigeSectie(tekst: string): string {
-  const regels = tekst.split("\n");
-  for (let i = regels.length - 1; i >= 0; i--) {
-    if (SECTIE_PATROON.test(regels[i].trim())) {
-      return regels.slice(0, i).join("\n").trimEnd();
-    }
-  }
-  return tekst.trimEnd();
-}
+export const MAX_OUTPUT_TOKENS = 64000;
 
 // ─────────────────────────────────────────────────────────────────────────
 // 1b. Page hierarchy (hoofdstuk -> subonderwerp)
@@ -477,7 +466,152 @@ export type BouwOpties = {
    *  rule as page links, for the same reason. Undefined = don't check (a
    *  caller that doesn't know the file list yet). */
   bestanden?: string[];
+  /**
+   * Alles wat nodig is voor canonical/Open Graph/LocalBusiness. Ontbreekt dit
+   * blok (geen DEMO_HOSTING_URL, of een testscript dat enkel de markup wil),
+   * dan worden die tags gewoon weggelaten — nooit een half ingevulde URL.
+   */
+  seo?: SeoGegevens;
 };
+
+export type SeoGegevens = {
+  leadId: string;
+  /** Basis-URL zonder slash op het einde, bv. "https://sites.yudexstudios.com". */
+  hostingBase: string;
+  sector: string;
+  adres?: string | null;
+  telefoon?: string | null;
+  ogAfbeelding?: string | null;
+};
+
+/** Google kapt rond 160 tekens af; langer is niet fout, maar wel zinloos. */
+const MAX_META_OMSCHRIJVING = 160;
+
+/**
+ * De omschrijving is inhoud, dus door het model geschreven — maar een
+ * ontbrekende of veel te lange omschrijving mag geen generatie laten falen.
+ * Vandaar afkappen op een woordgrens en anders terugvallen op titel + naam.
+ */
+export function valideerMetaOmschrijving(ruw: string | null | undefined, titel: string, bedrijfsnaam: string): string {
+  const schoon = (ruw ?? "").replace(/\s+/g, " ").trim();
+  if (!schoon) return `${titel} — ${bedrijfsnaam}`;
+  if (schoon.length <= MAX_META_OMSCHRIJVING) return schoon;
+
+  const geknipt = schoon.slice(0, MAX_META_OMSCHRIJVING - 3);
+  const spatie = geknipt.lastIndexOf(" ");
+  return `${(spatie > 0 ? geknipt.slice(0, spatie) : geknipt).trimEnd()}...`;
+}
+
+/**
+ * schema.org-type per sector. Een specifieker type dan LocalBusiness zegt een
+ * zoekmachine méér, maar enkel als het klopt — bij twijfel het algemene type.
+ */
+const LOCAL_BUSINESS_TYPES: { trefwoorden: string[]; type: string }[] = [
+  { trefwoorden: ["bloem", "florist"], type: "Florist" },
+  { trefwoorden: ["restaurant", "bistro", "brasserie", "eetcafé", "eethuis", "frituur", "afhaal"], type: "Restaurant" },
+  { trefwoorden: ["café", "cafe", "bar"], type: "BarOrPub" },
+  { trefwoorden: ["bakker"], type: "Bakery" },
+  { trefwoorden: ["slager"], type: "Store" },
+  { trefwoorden: ["kapper", "kapsalon", "barbier", "schoonheid"], type: "HealthAndBeautyBusiness" },
+  { trefwoorden: ["tuin", "hovenier", "groenaanleg", "landscap"], type: "HomeAndConstructionBusiness" },
+  { trefwoorden: ["bouw", "aannemer", "renovatie", "dakwerk", "schrijnwerk", "installatie"], type: "HomeAndConstructionBusiness" },
+  { trefwoorden: ["advocaat", "boekhoud", "consult", "advies", "makelaar", "verzekering"], type: "ProfessionalService" },
+];
+
+/**
+ * Gestructureerde bedrijfsgegevens, in code opgebouwd. Bewust niet door het
+ * model geschreven: JSON-LD moet syntactisch exact zijn, en een verzonnen veld
+ * is hier hetzelfde soort fout als een verzonnen Unsplash-ID.
+ */
+export function bouwLocalBusinessJsonLd(gegevens: {
+  bedrijfsnaam: string;
+  sector: string;
+  url: string;
+  adres?: string | null;
+  telefoon?: string | null;
+  afbeelding?: string | null;
+}): string {
+  const sector = gegevens.sector.toLowerCase();
+  const type =
+    LOCAL_BUSINESS_TYPES.find((t) => t.trefwoorden.some((k) => sector.includes(k)))?.type ?? "LocalBusiness";
+
+  const data: Record<string, unknown> = {
+    "@context": "https://schema.org",
+    "@type": type,
+    name: gegevens.bedrijfsnaam,
+    url: gegevens.url,
+  };
+  // Het leads-schema heeft één vrij tekstveld voor het adres, geen aparte
+  // straat/postcode/gemeente — dus een string, geen PostalAddress-object.
+  if (gegevens.adres) data.address = gegevens.adres;
+  if (gegevens.telefoon) data.telephone = gegevens.telefoon;
+  if (gegevens.afbeelding) data.image = gegevens.afbeelding;
+
+  return `<script type="application/ld+json">${JSON.stringify(data)}</script>`;
+}
+
+/**
+ * `basisUrl` is de map waarin de pagina's staan, zonder slash op het einde —
+ * "https://sites.example.be/{leadId}" op de functie-URL, of gewoon
+ * "https://klant.be" zodra de site op een eigen domein draait. Bewust die ene
+ * parameter in plaats van leadId + hostingBase: op een eigen domein zit er
+ * geen lead-id in het pad, en een sitemap die naar de andere URL wijst
+ * vertelt een zoekmachine dat de verkeerde adressen de echte zijn.
+ *
+ * Beveiligde pagina's blijven eruit: een crawler raakt er toch niet in.
+ */
+export function bouwSitemap(
+  paginas: { bestand: string; toegang?: "publiek" | "beveiligd" }[],
+  basisUrl: string,
+): string {
+  const basis = basisUrl.replace(/\/$/, "");
+  const urls = paginas
+    .filter((p) => p.toegang !== "beveiligd")
+    // De home staat op de map-URL, niet op /index.html: dat is ook wat de
+    // canonical in de pagina zelf zegt, en die twee moeten hetzelfde adres
+    // aanwijzen — anders wijst de sitemap een URL aan die zichzelf afwijst.
+    .map((p) => `<url><loc>${escapeHtml(p.bestand === "index.html" ? `${basis}/` : `${basis}/${p.bestand}`)}</loc></url>`)
+    .join("");
+  return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`;
+}
+
+export function bouwRobotsTxt(basisUrl: string): string {
+  return `User-agent: *\nAllow: /\nSitemap: ${basisUrl.replace(/\/$/, "")}/sitemap.xml\n`;
+}
+
+/**
+ * Vult een ontbrekende alt-tekst aan met de omschrijving uit de
+ * afbeeldingenbank. Draait vóór controleerAltTeksten, zodat het model niet
+ * gestraft wordt omdat het een bankfoto gebruikte zonder de omschrijving
+ * over te typen — alleen écht onbeschreven beeld blijft over.
+ */
+export function vulAltTeksten(html: string): string {
+  return html.replace(/<img\b[^>]*>/gi, (tag) => {
+    if (/\balt\s*=/i.test(tag)) return tag;
+
+    const src = /\bsrc\s*=\s*("([^"]*)"|'([^']*)')/i.exec(tag);
+    const url = src?.[2] ?? src?.[3] ?? "";
+    const bank = url ? zoekBankAfbeelding(url) : null;
+    if (!bank) return tag;
+
+    return tag.replace(/\s*(\/?)>$/, ` alt="${escapeHtml(bank.omschrijving)}"$1>`);
+  });
+}
+
+/**
+ * Een afbeelding zonder alt is onleesbaar voor een schermlezer en onzichtbaar
+ * voor een zoekmachine. Even hard als een dode link, en om dezelfde reden:
+ * het valt niet op in een screenshot.
+ */
+export function controleerAltTeksten(bestand: string, html: string): WidgetProbleem[] {
+  const problemen: WidgetProbleem[] = [];
+  for (const tag of html.match(/<img\b[^>]*>/gi) ?? []) {
+    if (!/\balt\s*=/i.test(tag)) {
+      problemen.push({ bestand, widget: "img", reden: `ontbrekend alt-attribuut op ${tag.slice(0, 80)}` });
+    }
+  }
+  return problemen;
+}
 
 /**
  * Makes every <img> load the way it should, in code rather than by asking the
@@ -537,7 +671,7 @@ export function bouwSite(
   bedrijfsnaam: string,
   opties: BouwOpties = {},
 ): GebouwdePagina[] {
-  const { bestanden } = opties;
+  const { bestanden, seo } = opties;
   if (!bron.paginas.some((p) => p.bestand === "index.html")) {
     throw new SiteBuildError("De site heeft geen index.html — dat is verplicht als startpagina.");
   }
@@ -550,6 +684,8 @@ export function bouwSite(
 
   const navResultaat = herschrijfLinks(bron.nav, bron.paginas);
   const footerResultaat = herschrijfLinks(bron.footer, bron.paginas);
+  navResultaat.html = vulAltTeksten(navResultaat.html);
+  footerResultaat.html = vulAltTeksten(footerResultaat.html);
 
   // Every page must be reachable from the shared nav — a generated file no
   // link points at is exactly the "losse HTML-bestanden die niet naar elkaar
@@ -568,7 +704,7 @@ export function bouwSite(
   const bodies: Record<string, string> = {};
   for (const pagina of bron.paginas) {
     const resultaat = herschrijfLinks(bron.bodies[pagina.bestand] ?? "", bron.paginas);
-    bodies[pagina.bestand] = resultaat.html;
+    bodies[pagina.bestand] = vulAltTeksten(resultaat.html);
     kapot.push(...resultaat.kapot);
   }
 
@@ -625,11 +761,14 @@ export function bouwSite(
     ...controleerGeenEigenScripts("FOOTER", footerResultaat.html, false),
     ...controleerWidgets("NAV", navResultaat.html),
     ...controleerWidgets("FOOTER", footerResultaat.html),
+    ...controleerAltTeksten("NAV", navResultaat.html),
+    ...controleerAltTeksten("FOOTER", footerResultaat.html),
   ];
   for (const pagina of bron.paginas) {
     problemen.push(
       ...controleerGeenEigenScripts(pagina.bestand, bodies[pagina.bestand], false),
       ...controleerWidgets(pagina.bestand, bodies[pagina.bestand]),
+      ...controleerAltTeksten(pagina.bestand, bodies[pagina.bestand]),
     );
   }
   if (problemen.length) {
@@ -648,6 +787,39 @@ export function bouwSite(
       );
     }
 
+    const omschrijving = valideerMetaOmschrijving(pagina.meta_omschrijving, pagina.titel, bedrijfsnaam);
+    const paginaUrl = seo
+      ? pagina.bestand === "index.html"
+        ? `${seo.hostingBase}/${seo.leadId}/`
+        : `${seo.hostingBase}/${seo.leadId}/${pagina.bestand}`
+      : null;
+
+    // Canonical/OG/JSON-LD worden hier door de code gezet, niet door het
+    // model: het zijn geen inhoudskeuzes maar exacte, machineleesbare velden.
+    const seoTags = paginaUrl
+      ? [
+          `<link rel="canonical" href="${escapeHtml(paginaUrl)}">`,
+          `<meta property="og:type" content="website">`,
+          `<meta property="og:title" content="${escapeHtml(`${pagina.titel} — ${bedrijfsnaam}`)}">`,
+          `<meta property="og:description" content="${escapeHtml(omschrijving)}">`,
+          `<meta property="og:url" content="${escapeHtml(paginaUrl)}">`,
+          seo?.ogAfbeelding ? `<meta property="og:image" content="${escapeHtml(seo.ogAfbeelding)}">` : "",
+        ].filter(Boolean)
+      : [];
+
+    // Enkel op de home: het bedrijf bestaat één keer, niet één keer per pagina.
+    const jsonLd =
+      seo && pagina.bestand === "index.html"
+        ? bouwLocalBusinessJsonLd({
+            bedrijfsnaam,
+            sector: seo.sector,
+            url: `${seo.hostingBase}/${seo.leadId}/`,
+            adres: seo.adres,
+            telefoon: seo.telefoon,
+            afbeelding: seo.ogAfbeelding,
+          })
+        : "";
+
     const gebouwd = {
       bestand: pagina.bestand,
       titel: pagina.titel,
@@ -658,6 +830,9 @@ export function bouwSite(
         '<meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width, initial-scale=1">',
         `<title>${escapeHtml(pagina.titel)} — ${escapeHtml(bedrijfsnaam)}</title>`,
+        `<meta name="description" content="${escapeHtml(omschrijving)}">`,
+        ...seoTags,
+        jsonLd,
         '<script src="https://cdn.tailwindcss.com"></script>',
         bron.head,
         ACTIEF_STIJL,
@@ -696,7 +871,7 @@ Antwoord in exact dit formaat, zonder markdown-codeblok en zonder uitleg ervoor 
 markerregel staat alleen op zijn eigen regel:
 
 ===META===
-{"paginas":[{"bestand":"index.html","titel":"Home","nav_label":"Home"},{"bestand":"over-ons.html","titel":"Over ons","nav_label":"Over ons"}]}
+{"paginas":[{"bestand":"index.html","titel":"Home","nav_label":"Home","meta_omschrijving":"..."},{"bestand":"over-ons.html","titel":"Over ons","nav_label":"Over ons","meta_omschrijving":"..."}]}
 ===HEAD===
 (extra <head>-inhoud: Google-fonts-link, <script>tailwind.config = {...}</script>, eigen <style>.
 Geen <title>, geen <meta charset>, geen Tailwind-CDN-script — die zet de code er zelf al in.)
@@ -749,5 +924,18 @@ Harde regels voor het paginasysteem:
   doorkliks naar de diepere pagina's.
 - Contactgegevens (adres, telefoon, e-mail, openingsuren) horen volledig op contact.html en
   verkort in de footer.
+
+Vindbaarheid in zoekmachines (SEO):
+- Geef ELKE pagina in ===META=== een "meta_omschrijving": één zin van 120 tot 160 tekens die
+  beschrijft wat er op díe pagina staat. Schrijf ze voor een mens die hem in Google leest, met
+  de bedrijfsnaam en de gemeente erin waar dat natuurlijk past. Elke pagina krijgt een eigen
+  omschrijving — niet één keer dezelfde tekst hergebruiken.
+- Geef ELKE <img> een alt-attribuut dat beschrijft wat er te zien is ("boeketten in de
+  winkelvitrine"), niet de bestandsnaam en niet "afbeelding". Is de afbeelding puur decoratief,
+  gebruik dan alt="". Een <img> zonder alt-attribuut laat de hele generatie mislukken.
+- Gebruik één <h1> per pagina, en daaronder <h2>/<h3> in logische volgorde — sla geen niveau
+  over en kies een kopniveau nooit om zijn lettergrootte (dat doe je met Tailwind-klassen).
+- De canonical-URL, de Open Graph-tags en de gestructureerde bedrijfsgegevens worden door de
+  code toegevoegd. Schrijf ze zelf niet.
 
 ${WIDGET_PROMPT}`;

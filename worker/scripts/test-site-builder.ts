@@ -12,11 +12,17 @@
 import assert from "node:assert/strict";
 import {
   SiteBuildError,
+  bouwLocalBusinessJsonLd,
+  bouwRobotsTxt,
   bouwSite,
+  bouwSitemap,
   markeerActievePagina,
   optimaliseerAfbeeldingen,
   parseSiteBron,
+  valideerMetaOmschrijving,
+  vulAltTeksten,
 } from "../src/shared/site-builder.js";
+import { IMAGE_BANK } from "../src/shared/image-bank.js";
 
 let geslaagd = 0;
 function test(naam: string, fn: () => void) {
@@ -358,12 +364,161 @@ test("houdt een zelfsluitende tag zelfsluitend", () => {
 test("de gebouwde pagina komt er met geoptimaliseerde afbeeldingen uit", () => {
   const metBeeld = GENEST.replace(
     "<main><h1>Tuinaanleg</h1></main>",
-    '<main><h1>Tuinaanleg</h1><img src="https://images.unsplash.com/photo-9?w=800"><img src="https://images.unsplash.com/photo-8?w=800"></main>',
+    '<main><h1>Tuinaanleg</h1><img src="https://images.unsplash.com/photo-9?w=800" alt="een aangelegde tuin">' +
+      '<img src="https://images.unsplash.com/photo-8?w=800" alt="een terras in aanbouw"></main>',
   );
   const paginas = bouwSite(parseSiteBron(metBeeld), "Test");
   const pagina = paginas.find((p) => p.bestand === "tuinaanleg.html")!;
   assert.match(pagina.html, /auto=format/);
   assert.match(pagina.html, /loading="lazy"/);
+});
+
+// ── SEO ───────────────────────────────────────────────────────────────────
+
+const SEO = {
+  leadId: "lead-1",
+  hostingBase: "https://sites.example.be",
+  sector: "bloemist",
+  adres: "Dorpsstraat 1, 3990 Peer",
+  telefoon: "011 22 33 44",
+  ogAfbeelding: "https://images.unsplash.com/photo-1?auto=format",
+};
+
+test("valt terug op titel en bedrijfsnaam zonder meta-omschrijving", () => {
+  assert.equal(valideerMetaOmschrijving(null, "Diensten", "Test BV"), "Diensten — Test BV");
+  assert.equal(valideerMetaOmschrijving("   ", "Diensten", "Test BV"), "Diensten — Test BV");
+});
+
+test("kapt een te lange meta-omschrijving af op een woordgrens", () => {
+  const lang = `${"woord ".repeat(60)}einde`;
+  const uit = valideerMetaOmschrijving(lang, "Home", "Test BV");
+  assert.ok(uit.length <= 160, `lengte was ${uit.length}`);
+  assert.ok(uit.endsWith("..."));
+  assert.ok(!uit.includes("  "));
+  // Mag niet midden in een woord afkappen.
+  assert.ok(/woord\.\.\.$/.test(uit), uit);
+});
+
+test("laat een omschrijving van de juiste lengte ongemoeid", () => {
+  const goed = "Bloemen en boeketten uit Peer, vers gebonden voor elke gelegenheid.";
+  assert.equal(valideerMetaOmschrijving(goed, "Home", "De Roos"), goed);
+});
+
+test("zet meta description, canonical en og-tags op elke pagina", () => {
+  const paginas = bouwSite(parseSiteBron(GELDIG), "Test BV", { seo: SEO });
+  for (const pagina of paginas) {
+    assert.match(pagina.html, /<meta name="description" content="[^"]+">/);
+    // De home canonicaliseert naar de map-URL, elke andere pagina naar
+    // haar eigen bestand — dezelfde vorm als in de sitemap.
+    const verwacht =
+      pagina.bestand === "index.html"
+        ? "https://sites.example.be/lead-1/"
+        : `https://sites.example.be/lead-1/${pagina.bestand}`;
+    assert.match(pagina.html, new RegExp(`<link rel="canonical" href="${verwacht}">`));
+    assert.match(pagina.html, new RegExp(`<meta property="og:url" content="${verwacht}">`));
+    assert.match(pagina.html, /<meta property="og:title"/);
+    assert.match(pagina.html, /<meta property="og:description"/);
+    assert.match(pagina.html, /<meta property="og:image" content="https:\/\/images.unsplash.com/);
+  }
+});
+
+test("laat canonical en og weg zonder seo-blok, maar houdt de description", () => {
+  const pagina = bouwSite(parseSiteBron(GELDIG), "Test BV")[0];
+  assert.match(pagina.html, /<meta name="description"/);
+  assert.ok(!/rel="canonical"/.test(pagina.html));
+  assert.ok(!/og:title/.test(pagina.html));
+});
+
+test("zet LocalBusiness-JSON-LD enkel op de home", () => {
+  const paginas = bouwSite(parseSiteBron(GELDIG), "Test BV", { seo: SEO });
+  const home = paginas.find((p) => p.bestand === "index.html")!;
+  const ander = paginas.find((p) => p.bestand === "over-ons.html")!;
+  assert.match(home.html, /application\/ld\+json/);
+  assert.ok(!/application\/ld\+json/.test(ander.html));
+});
+
+test("kiest een specifiek schema.org-type, en anders LocalBusiness", () => {
+  const bloemist = JSON.parse(
+    /<script type="application\/ld\+json">(.*)<\/script>/.exec(
+      bouwLocalBusinessJsonLd({ bedrijfsnaam: "De Roos", sector: "bloemist", url: "https://x/" }),
+    )![1],
+  );
+  assert.equal(bloemist["@type"], "Florist");
+  assert.equal(bloemist.name, "De Roos");
+  // Velden die er niet zijn, worden niet als lege string meegestuurd.
+  assert.ok(!("address" in bloemist));
+
+  const onbekend = JSON.parse(
+    /<script type="application\/ld\+json">(.*)<\/script>/.exec(
+      bouwLocalBusinessJsonLd({
+        bedrijfsnaam: "X",
+        sector: "iets heel anders",
+        url: "https://x/",
+        adres: "Straat 1",
+        telefoon: "011",
+      }),
+    )![1],
+  );
+  assert.equal(onbekend["@type"], "LocalBusiness");
+  assert.equal(onbekend.address, "Straat 1");
+  assert.equal(onbekend.telephone, "011");
+});
+
+test("laat een beveiligde pagina uit de sitemap", () => {
+  const xml = bouwSitemap(
+    [
+      { bestand: "index.html" },
+      { bestand: "prijzen.html", toegang: "beveiligd" },
+      { bestand: "contact.html", toegang: "publiek" },
+    ],
+    "https://sites.example.be/lead-1",
+  );
+  assert.match(xml, /<loc>https:\/\/sites.example.be\/lead-1\/<\/loc>/);
+  assert.match(xml, /<loc>https:\/\/sites.example.be\/lead-1\/contact.html<\/loc>/);
+  assert.ok(!xml.includes("prijzen.html"));
+});
+
+// Op een eigen domein staat de site in de root: geen lead-id in het pad, en
+// dus ook niet in de sitemap. Dit is de reden dat bouwSitemap één basis-URL
+// neemt in plaats van leadId + hostingBase.
+test("sitemap op een eigen domein zet de pagina's in de root", () => {
+  const xml = bouwSitemap([{ bestand: "index.html" }, { bestand: "contact.html" }], "https://klant.be");
+  assert.match(xml, /<loc>https:\/\/klant.be\/<\/loc>/);
+  assert.match(xml, /<loc>https:\/\/klant.be\/contact.html<\/loc>/);
+  assert.ok(!xml.includes("lead-1"));
+});
+
+test("robots.txt wijst naar de sitemap van dezelfde site", () => {
+  assert.match(
+    bouwRobotsTxt("https://sites.example.be/lead-1"),
+    /Sitemap: https:\/\/sites.example.be\/lead-1\/sitemap.xml/,
+  );
+  // Een slash op het einde mag, en mag geen dubbele slash opleveren.
+  assert.match(bouwRobotsTxt("https://klant.be/"), /Sitemap: https:\/\/klant.be\/sitemap.xml/);
+});
+
+test("vult alt aan uit de afbeeldingenbank en laat een eigen alt staan", () => {
+  const bank = IMAGE_BANK[0];
+  const aangevuld = vulAltTeksten(`<img src="${bank.url}">`);
+  assert.match(aangevuld, new RegExp(`alt="${bank.omschrijving}"`));
+
+  const eigen = vulAltTeksten(`<img src="${bank.url}" alt="mijn eigen tekst">`);
+  assert.match(eigen, /alt="mijn eigen tekst"/);
+  assert.equal((eigen.match(/alt=/g) ?? []).length, 1);
+
+  // Een onbekende URL kan niet aangevuld worden — die moet de build laten falen.
+  assert.equal(vulAltTeksten('<img src="bestanden/foto.jpg">'), '<img src="bestanden/foto.jpg">');
+});
+
+test("weigert een afbeelding zonder alt die niet aan te vullen is", () => {
+  const metBeeld = GELDIG.replace(
+    "<main><h1>Over ons</h1></main>",
+    '<main><h1>Over ons</h1><img src="bestanden/team.jpg"></main>',
+  );
+  assert.throws(
+    () => bouwSite(parseSiteBron(metBeeld), "Test BV", { bestanden: ["team.jpg"] }),
+    (err: unknown) => err instanceof SiteBuildError && /alt-attribuut/.test((err as Error).message),
+  );
 });
 
 console.log(`\n${geslaagd} tests geslaagd${process.exitCode ? " (met fouten)" : ""}`);

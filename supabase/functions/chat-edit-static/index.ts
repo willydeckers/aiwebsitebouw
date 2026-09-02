@@ -1,10 +1,14 @@
 import Anthropic from "npm:@anthropic-ai/sdk@0.112.1";
 import { handleCorsPreflight, corsHeaders } from "../_shared/cors.ts";
 import { requireUser } from "../_shared/supabase-clients.ts";
-import { createAnthropicClient, calculateKostEur } from "../_shared/anthropic.ts";
+import {
+  MAX_TIER_ONDERSTEUNEND,
+  calculateKostEur,
+  createAnthropicClient,
+  resolveModel,
+} from "../_shared/anthropic.ts";
 import { SiteBuildError, bouwSite, parseSiteBron, type SiteBron } from "../_shared/site-builder.ts";
 
-const MODEL = Deno.env.get("MODEL_KWALITEIT") ?? "claude-opus-4-8";
 const PROMPT_VERSIE = "chat-edit-static-v9.1-multipage";
 const VIRTUAL_DIR = "/demo";
 const VIRTUAL_PATH = `${VIRTUAL_DIR}/index.html`;
@@ -173,9 +177,11 @@ Deno.serve(async (req) => {
     // Needed to re-render the per-page <title> when re-assembling below.
     const { data: lead } = await supabase
       .from("leads")
-      .select("bedrijfsnaam")
+      .select("bedrijfsnaam, ai_model")
       .eq("id", leadId)
       .maybeSingle();
+
+    const model = resolveModel(lead?.ai_model, { maxTier: MAX_TIER_ONDERSTEUNEND });
 
     const isMultipage = Array.isArray(siteVersion.paginas) && siteVersion.paginas.length > 0;
     const map = siteVersion.content_referentie.replace(/\/index\.html$/, "");
@@ -223,7 +229,7 @@ Deno.serve(async (req) => {
 
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
       const response = await client.messages.create({
-        model: MODEL,
+        model,
         max_tokens: 8000,
         system: isMultipage ? SYSTEM_PROMPT_MULTIPAGE : SYSTEM_PROMPT_ENKELE_PAGINA,
         tools: [{ type: "text_editor_20250728", name: "str_replace_based_edit_tool" }, REMEMBER_TOOL],
@@ -292,10 +298,10 @@ Deno.serve(async (req) => {
       {
         p_lead_id: leadId,
         p_stap: "chat_edit",
-        p_model: MODEL,
+        p_model: model,
         p_tokens_in: tokensIn,
         p_tokens_out: tokensOut,
-        p_kost_eur: calculateKostEur(MODEL, tokensIn, tokensOut),
+        p_kost_eur: calculateKostEur(model, tokensIn, tokensOut),
         p_prompt_versie: PROMPT_VERSIE,
       },
     );
@@ -410,6 +416,13 @@ Deno.serve(async (req) => {
       ai_antwoord: antwoord || null,
       prompt_versie: PROMPT_VERSIE,
     });
+
+    // Tellen gebeurt enkel na een échte wijziging bij een bestaande klant: de
+    // gratis iteratierondes vóór de verkoop horen niet mee te tellen, en een
+    // instructie die niets veranderde is geen verbruikte wijziging.
+    if (editApplied) {
+      await supabase.rpc("tel_klant_wijziging", { p_lead_id: leadId });
+    }
 
     return new Response(JSON.stringify({ ok: true, toegepast: editApplied, antwoord: antwoord || null }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

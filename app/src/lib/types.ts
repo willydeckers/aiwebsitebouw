@@ -1,3 +1,6 @@
+import type { AiModel } from "./ai-modellen";
+import type { Betaalstatus, DomeinType, PakketType } from "./pakketten";
+
 export const LEAD_STATUSES = [
   "nieuw",
   "research",
@@ -50,6 +53,7 @@ export type Lead = {
   notities: string | null;
   open_vragen: string | null;
   research_samenvatting: string | null;
+  ai_model: AiModel | null;
   status: LeadStatus;
   klant_type: "statisch" | "shopify" | null;
   shopify_store_id: string | null;
@@ -194,4 +198,43 @@ export type SiteToegang = {
   hint: string | null;
   aangemaakt_op: string;
   aangemaakt_door: string | null;
+};
+
+// ── Klant: wat er is afgesproken toen de lead promoveerde ────────────────
+
+/** Zowel het pakket als het domein staan hier, niet in een aparte tabel: een
+ *  klant heeft er precies één van elk, en `definitief_domein` bestond al. */
+export type Klant = {
+  id: string;
+  lead_id: string;
+  type: "statisch" | "shopify";
+  definitief_domein: string | null;
+  domein_type: DomeinType | null;
+  domein_status: DomeinStatus | null;
+  cloudflare_hostname_id: string | null;
+  domein_verificatie: DomeinVerificatie | null;
+  site_status: string | null;
+  pakket_type: PakketType | null;
+  /** null = niet van toepassing (aankoop) of onbeperkt. */
+  wijzigingen_inbegrepen: number | null;
+  wijzigingen_gebruikt_periode: number;
+  periode_gestart_op: string | null;
+  deal_bedrag: number | null;
+  betaalstatus: Betaalstatus | null;
+  deal_notities: string | null;
+};
+
+export const DOMEIN_STATUSSEN = ["in_aanvraag", "actief", "mislukt"] as const;
+export type DomeinStatus = (typeof DOMEIN_STATUSSEN)[number];
+
+/** Wat de klant bij zijn eigen registrar moet zetten. Door Cloudflare
+ *  teruggegeven bij het aanmaken van het custom hostname, hier bewaard zodat
+ *  de instructie herhaalbaar is zonder de API opnieuw te bevragen. */
+export type DomeinVerificatie = {
+  cname_naam: string;
+  cname_waarde: string;
+  /** Cloudflare's eigen woordkeuze (pending_validation, active, ...) — bewaard
+   *  zoals ze binnenkwam, want ze is diagnostisch, niet beslissend. */
+  ssl_status?: string | null;
+  fout?: string | null;
 };

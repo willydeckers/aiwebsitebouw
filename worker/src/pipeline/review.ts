@@ -1,9 +1,5 @@
 import { z } from "zod";
-import { createAnthropicClient } from "../shared/anthropic.js";
-
-// Spec section 2: review-beoordeling must use a vision-capable model at
-// the same tier as generation.
-const MODEL = process.env.MODEL_KWALITEIT ?? "claude-opus-4-8";
+import { MAX_TIER_ONDERSTEUNEND, createAnthropicClient, resolveModel } from "../shared/anthropic.js";
 
 const ReviewSchema = z.object({
   goedgekeurd: z.boolean(),
@@ -37,10 +33,16 @@ export type ReviewScreenshot = { label: string; png: Buffer };
 
 export async function reviewDemo(
   screenshots: ReviewScreenshot[],
-  context: { bedrijfsnaam: string; sector: string; researchSamenvatting: string | null },
+  context: {
+    bedrijfsnaam: string;
+    sector: string;
+    researchSamenvatting: string | null;
+    aiModel?: string | null;
+  },
   stijlvoorkeuren: { regel: string }[],
 ): Promise<{ result: ReviewResult; usage: ReviewUsage }> {
   const client = createAnthropicClient();
+  const model = resolveModel(context.aiModel, { maxTier: MAX_TIER_ONDERSTEUNEND });
 
   const contextText = [
     `Bedrijfsnaam: ${context.bedrijfsnaam}`,
@@ -56,7 +58,7 @@ export async function reviewDemo(
     .join("\n\n");
 
   const response = await client.messages.create({
-    model: MODEL,
+    model,
     max_tokens: 2048,
     system: SYSTEM_PROMPT,
     messages: [
@@ -91,6 +93,6 @@ export async function reviewDemo(
 
   return {
     result: parsed,
-    usage: { model: MODEL, tokensIn: response.usage.input_tokens, tokensOut: response.usage.output_tokens },
+    usage: { model, tokensIn: response.usage.input_tokens, tokensOut: response.usage.output_tokens },
   };
 }

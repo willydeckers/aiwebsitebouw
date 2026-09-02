@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/client";
 import { logAudit } from "@/lib/audit";
 import { describeFunctionError } from "@/lib/supabase/function-error";
+import type { AiModel } from "@/lib/ai-modellen";
 
 export async function createLead(_prevState: string | null, formData: FormData) {
   const bedrijfsnaam = (formData.get("bedrijfsnaam") as string)?.trim();
@@ -52,6 +53,17 @@ export async function updateLeadGegevens(
 ) {
   const supabase = createClient();
   const { error } = await supabase.from("leads").update(gegevens).eq("id", leadId);
+
+  if (error) {
+    return `Opslaan mislukt: ${error.message}`;
+  }
+
+  return null;
+}
+
+export async function updateLeadAiModel(leadId: string, aiModel: AiModel | null) {
+  const supabase = createClient();
+  const { error } = await supabase.from("leads").update({ ai_model: aiModel }).eq("id", leadId);
 
   if (error) {
     return `Opslaan mislukt: ${error.message}`;

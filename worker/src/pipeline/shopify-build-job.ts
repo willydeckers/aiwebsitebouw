@@ -40,7 +40,9 @@ export async function processShopifyBuildJob(
   supabase: SupabaseClient,
   jobId: string,
   leadId: string,
-  payload: { shopifyDomain?: string } | null,
+  /** `klantVelden` draagt de pakket-/dealafspraak mee die bij het promoveren
+   *  is ingevuld — die bestaat op dat moment, niet wanneer deze job draait. */
+  payload: { shopifyDomain?: string; klantVelden?: Record<string, unknown> } | null,
 ) {
   const { data: lead, error: leadError } = await supabase
     .from("leads")
@@ -80,9 +82,14 @@ export async function processShopifyBuildJob(
   if (leadUpdateError) throw new Error(`Kon lead niet bijwerken: ${leadUpdateError.message}`);
 
   const { error: klantError } = await supabase.from("klanten").insert({
+    ...(payload?.klantVelden ?? {}),
     lead_id: leadId,
     type: "shopify",
+    // Na de spread, niet ervoor: het myshopify-adres is voor een Shopify-klant
+    // hét domein. De app stuurt de domeinvelden hier niet mee, maar deze
+    // volgorde zorgt dat dat ook niet uitmaakt als dat ooit verandert.
     definitief_domein: domain,
+    domein_type: null,
     shopify_domain: domain,
     site_status: "Actief (Dawn-basistheme)",
   });

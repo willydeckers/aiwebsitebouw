@@ -204,3 +204,85 @@ test("chatgeschiedenis blijft bewaard en toont wie wat stuurde", async ({ page }
     .eq("lead_id", lead!.id);
   expect(naHerladen).toHaveLength(1);
 });
+
+test("de modelkeuze van een lead wordt bewaard", async ({ page }) => {
+  // ai_model stuurt welk model élke pipeline-stap gebruikt, en NULL betekent
+  // "val terug op de env-var" — een selector die stilletjes niets opslaat zou
+  // er dus precies hetzelfde uitzien als een lead op de standaard.
+  const admin = adminClient();
+  const naam = `${TEST_PREFIX}model ${Date.now()}`;
+
+  const { data: lead } = await admin
+    .from("leads")
+    .insert({ bedrijfsnaam: naam, sector: "Bakkerij", herkomst: "manueel" })
+    .select("id")
+    .single();
+
+  await page.goto("/leads");
+  await page.getByRole("row", { name: new RegExp(naam) }).click();
+  await expect(page.getByRole("heading", { name: naam })).toBeVisible();
+
+  const keuze = page.getByLabel("AI-model voor deze lead");
+  await expect(keuze).toHaveValue("claude-opus-4-8");
+
+  await keuze.selectOption("claude-sonnet-5");
+
+  await expect
+    .poll(
+      async () => {
+        const { data } = await admin.from("leads").select("ai_model").eq("id", lead!.id).single();
+        return data?.ai_model;
+      },
+      { timeout: 10_000 },
+    )
+    .toBe("claude-sonnet-5");
+});
+
+test("pakket, betaalstatus en wijzigingenteller van een klant zijn zichtbaar en bewaarbaar", async ({ page }) => {
+  // Dit blok bestaat om één vraag te beantwoorden die anders in een mailbox
+  // zit: wat heeft deze klant gekocht, en hoeveel wijzigingen zijn er al op
+  // gegaan. De teller telt en blokkeert niets — dat is een keuze, dus het
+  // getal moet wel kloppen.
+  const admin = adminClient();
+  const naam = `${TEST_PREFIX}pakket ${Date.now()}`;
+
+  const { data: lead } = await admin
+    .from("leads")
+    .insert({ bedrijfsnaam: naam, sector: "Kapsalon", herkomst: "manueel", klant_type: "statisch" })
+    .select("id")
+    .single();
+
+  const { data: klant, error } = await admin
+    .from("klanten")
+    .insert({
+      lead_id: lead!.id,
+      type: "statisch",
+      pakket_type: "bundel_2",
+      wijzigingen_inbegrepen: 3,
+      wijzigingen_gebruikt_periode: 2,
+    })
+    .select("id")
+    .single();
+  expect(error, error?.message).toBeNull();
+
+  await page.goto("/leads");
+  await page.getByRole("row", { name: new RegExp(naam) }).click();
+  await expect(page.getByRole("heading", { name: naam })).toBeVisible();
+
+  await page.getByRole("button", { name: /Pakket & domein/ }).click();
+  await expect(page.getByText("Bundel 2")).toBeVisible();
+  await expect(page.getByText(/2 van 3/)).toBeVisible();
+
+  await page.getByLabel("Betaalstatus").selectOption("gefactureerd");
+  await page.getByRole("button", { name: "Bewaren" }).click();
+
+  await expect
+    .poll(
+      async () => {
+        const { data } = await admin.from("klanten").select("betaalstatus").eq("id", klant!.id).single();
+        return data?.betaalstatus;
+      },
+      { timeout: 10_000 },
+    )
+    .toBe("gefactureerd");
+});

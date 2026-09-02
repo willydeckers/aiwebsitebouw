@@ -1,11 +1,15 @@
 import Anthropic from "npm:@anthropic-ai/sdk@0.112.1";
 import { handleCorsPreflight, corsHeaders } from "../_shared/cors.ts";
 import { requireUser } from "../_shared/supabase-clients.ts";
-import { createAnthropicClient, calculateKostEur } from "../_shared/anthropic.ts";
+import {
+  MAX_TIER_ONDERSTEUNEND,
+  calculateKostEur,
+  createAnthropicClient,
+  resolveModel,
+} from "../_shared/anthropic.ts";
 import { shopifyAdminGraphQL } from "../_shared/shopify.ts";
 import { getShopifyToken } from "../_shared/shopify-token.ts";
 
-const MODEL = Deno.env.get("MODEL_KWALITEIT") ?? "claude-opus-4-8";
 const PROMPT_VERSIE = "chat-edit-shopify-v9.0";
 const MAX_TOOL_ITERATIONS = 6;
 
@@ -48,6 +52,13 @@ Deno.serve(async (req) => {
     // tokens live 24 hours, so there is no long-lived token to store.
     const { shopDomein, token } = await getShopifyToken(supabase, klant.lead_id);
 
+    const { data: lead } = await supabase
+      .from("leads")
+      .select("ai_model")
+      .eq("id", klant.lead_id)
+      .maybeSingle();
+    const model = resolveModel(lead?.ai_model, { maxTier: MAX_TIER_ONDERSTEUNEND });
+
     const client = createAnthropicClient();
     let tokensIn = 0;
     let tokensOut = 0;
@@ -58,7 +69,7 @@ Deno.serve(async (req) => {
 
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
       const response = await client.messages.create({
-        model: MODEL,
+        model,
         max_tokens: 4096,
         system: SYSTEM_PROMPT,
         tools: [SHOPIFY_TOOL],
@@ -108,10 +119,10 @@ Deno.serve(async (req) => {
       {
         p_lead_id: klant.lead_id,
         p_stap: "chat_edit",
-        p_model: MODEL,
+        p_model: model,
         p_tokens_in: tokensIn,
         p_tokens_out: tokensOut,
-        p_kost_eur: calculateKostEur(MODEL, tokensIn, tokensOut),
+        p_kost_eur: calculateKostEur(model, tokensIn, tokensOut),
         p_prompt_versie: PROMPT_VERSIE,
       },
     );
@@ -132,6 +143,11 @@ Deno.serve(async (req) => {
       ai_antwoord: summary || null,
       prompt_versie: PROMPT_VERSIE,
     });
+
+    // Zie de gelijknamige aanroep in chat-edit-static.
+    if (editApplied) {
+      await supabase.rpc("tel_klant_wijziging", { p_lead_id: klant.lead_id });
+    }
 
     return new Response(JSON.stringify({ ok: true, toegepast: editApplied, antwoord: summary || null }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

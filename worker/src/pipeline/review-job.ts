@@ -93,7 +93,12 @@ export async function processReviewJob(supabase: SupabaseClient, jobId: string, 
 
     const { result, usage } = await reviewDemo(
       screenshots,
-      { bedrijfsnaam: lead.bedrijfsnaam, sector: lead.sector, researchSamenvatting: lead.research_samenvatting },
+      {
+        bedrijfsnaam: lead.bedrijfsnaam,
+        sector: lead.sector,
+        researchSamenvatting: lead.research_samenvatting,
+        aiModel: lead.ai_model,
+      },
       stijlvoorkeuren ?? [],
     );
 

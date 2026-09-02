@@ -1,5 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createAnthropicClient, calculateKostEur } from "../shared/anthropic.js";
+import {
+  MAX_TIER_ONDERSTEUNEND,
+  calculateKostEur,
+  createAnthropicClient,
+  resolveModel,
+} from "../shared/anthropic.js";
 
 // Spec 3.2, moved out of the `research` Edge Function for the same reason
 // generation was: this project's Edge Function invocations are killed at about
@@ -14,8 +19,6 @@ import { createAnthropicClient, calculateKostEur } from "../shared/anthropic.js"
 // The fetch budget below is no longer constrained by that ceiling, but it is
 // still deliberately small: each fetch costs a model turn, and the €0.10/lead
 // sourcing budget and €5/lead project budget both come out of the same pot.
-
-const MODEL = process.env.MODEL_KWALITEIT ?? "claude-opus-4-8";
 
 const SYSTEM_PROMPT = `Je bent de research-stap van een web agency dashboard (spec sectie 3.2).
 Het doel is niet een korte samenvatting — het is een volledig herbruikbare inventaris van alles
@@ -83,6 +86,7 @@ type Lead = {
   website_url: string | null;
   notities: string | null;
   status: string;
+  ai_model: string | null;
 };
 
 export async function processResearchJob(supabase: SupabaseClient, jobId: string, leadId: string) {
@@ -103,6 +107,7 @@ export async function processResearchJob(supabase: SupabaseClient, jobId: string
   }
 
   const client = createAnthropicClient();
+  const model = resolveModel(typedLead.ai_model, { maxTier: MAX_TIER_ONDERSTEUNEND });
   const userMessage = [
     `Bedrijfsnaam: ${typedLead.bedrijfsnaam}`,
     `Sector: ${typedLead.sector}`,
@@ -116,7 +121,7 @@ export async function processResearchJob(supabase: SupabaseClient, jobId: string
     .join("\n");
 
   const response = await client.messages.create({
-    model: MODEL,
+    model,
     max_tokens: 8000,
     system: SYSTEM_PROMPT,
     tools: [
@@ -148,10 +153,10 @@ export async function processResearchJob(supabase: SupabaseClient, jobId: string
     {
       p_lead_id: leadId,
       p_stap: "research",
-      p_model: MODEL,
+      p_model: model,
       p_tokens_in: response.usage.input_tokens,
       p_tokens_out: response.usage.output_tokens,
-      p_kost_eur: calculateKostEur(MODEL, response.usage.input_tokens, response.usage.output_tokens),
+      p_kost_eur: calculateKostEur(model, response.usage.input_tokens, response.usage.output_tokens),
     },
   );
 

@@ -1,12 +1,12 @@
-import { createAnthropicClient } from "../shared/anthropic.js";
-import { bouwImageBankPrompt } from "../shared/image-bank.js";
+import { createAnthropicClient, resolveModel } from "../shared/anthropic.js";
+import { bouwImageBankPrompt, standaardOgAfbeelding } from "../shared/image-bank.js";
 import {
   MAX_OUTPUT_TOKENS,
   MULTIPAGE_PROMPT,
   bouwSite,
-  knipNaLaatsteVolledigeSectie,
   parseSiteBron,
   type GebouwdePagina,
+  type SeoGegevens,
   type SiteBron,
 } from "../shared/site-builder.js";
 
@@ -15,8 +15,6 @@ import {
 // review loop needs to regenerate-with-feedback locally in this worker
 // (see the note in review-job.ts on why it doesn't call the Edge Function
 // for this). Keep the two in sync by hand.
-
-const MODEL = process.env.MODEL_KWALITEIT ?? "claude-opus-4-8";
 
 const SECTOR_STYLES: { keywords: string[]; guidance: string }[] = [
   {
@@ -64,14 +62,41 @@ bedrijfsinformatie die niet is meegegeven.`;
 export type GenerateUsage = { model: string; tokensIn: number; tokensOut: number };
 
 export type Lead = {
+  id: string;
   bedrijfsnaam: string;
   sector: string;
   adres: string | null;
+  telefoon: string | null;
   notities: string | null;
   research_samenvatting: string | null;
+  ai_model: string | null;
 };
 
 export type GenerateResult = { bron: SiteBron; paginas: GebouwdePagina[]; usage: GenerateUsage };
+
+/**
+ * Canonical/OG/JSON-LD kunnen enkel absolute URL's bevatten, dus zonder
+ * DEMO_HOSTING_URL blijven die tags weg in plaats van half ingevuld te zijn.
+ * Een eigen logo is het beste deelbeeld; anders een passende bankfoto.
+ */
+function bouwSeoGegevens(lead: Lead, bestanden: string[]): SeoGegevens | undefined {
+  const hostingBase = (process.env.DEMO_HOSTING_URL ?? "").replace(/\/$/, "");
+  if (!hostingBase) return undefined;
+
+  const logo = bestanden.find((b) => /^logo\./i.test(b));
+  const briefing = `${lead.notities ?? ""} ${lead.research_samenvatting ?? ""}`;
+
+  return {
+    leadId: lead.id,
+    hostingBase,
+    sector: lead.sector,
+    adres: lead.adres,
+    telefoon: lead.telefoon,
+    ogAfbeelding: logo
+      ? `${hostingBase}/${lead.id}/bestanden/${encodeURIComponent(logo)}`
+      : standaardOgAfbeelding(lead.sector, briefing),
+  };
+}
 
 /** Review-loop path (spec 3.4): regenerate the whole site with the reviewer's
  *  findings as extra instructions. */
@@ -87,6 +112,7 @@ export function regenerateWithFeedback(
     stijlvoorkeuren,
     sectorKennis,
     `Dit is een herziening na review-feedback (spec 3.4) — verwerk expliciet:\n${feedback}`,
+    bestanden,
   );
 }
 
@@ -127,50 +153,42 @@ ${lead.research_samenvatting ?? ""}`);
     .filter(Boolean)
     .join("\n\n");
 
-  // Same non-streaming + continuation loop as generatie/index.ts (see the
-  // comment there): a multi-page site doesn't reliably fit in one answer, and
-  // a truncated one is resumed from an assistant prefill rather than raising
-  // max_tokens into streaming-only territory.
-  let verzameld = "";
-  let tokensIn = 0;
-  let tokensOut = 0;
+  // Streamend, in één antwoord: MAX_OUTPUT_TOKENS is ruim genoeg voor een
+  // volledige site, en de SDK laat zo'n plafond enkel streamend toe.
+  const model = resolveModel(lead.ai_model);
+  const stream = client.messages.stream({
+    model,
+    max_tokens: MAX_OUTPUT_TOKENS,
+    system: systemPrompt,
+    messages: [{ role: "user", content: userMessage }],
+  });
 
-  for (let poging = 0; poging < 3; poging++) {
-    const response = await client.messages.create({
-      model: MODEL,
-      max_tokens: MAX_OUTPUT_TOKENS,
-      system: systemPrompt,
-      messages: verzameld
-        ? [
-            { role: "user", content: userMessage },
-            { role: "assistant", content: verzameld },
-          ]
-        : [{ role: "user", content: userMessage }],
-    });
+  const response = await stream.finalMessage();
 
-    tokensIn += response.usage.input_tokens;
-    tokensOut += response.usage.output_tokens;
-
-    const textBlocks = response.content.filter((b) => b.type === "text");
-    const lastText = textBlocks[textBlocks.length - 1];
-    if (!lastText || lastText.type !== "text") {
-      throw new Error("Geen antwoord ontvangen van generatie-call.");
-    }
-
-    verzameld += lastText.text;
-    if (response.stop_reason !== "max_tokens") break;
-    verzameld = knipNaLaatsteVolledigeSectie(verzameld);
-
-    if (poging === 2) {
-      throw new Error("Generatie bleef afgekapt na 3 pogingen — site niet volledig.");
-    }
+  if (response.stop_reason === "refusal") {
+    throw new Error("De generatie werd door het model geweigerd (stop_reason: refusal).");
+  }
+  if (response.stop_reason === "max_tokens") {
+    throw new Error(
+      `Generatie afgekapt op max_tokens (${MAX_OUTPUT_TOKENS}) — site niet volledig.`,
+    );
   }
 
-  const bron = parseSiteBron(verzameld);
+  const textBlocks = response.content.filter((b) => b.type === "text");
+  const lastText = textBlocks[textBlocks.length - 1];
+  if (!lastText || lastText.type !== "text") {
+    throw new Error("Geen antwoord ontvangen van generatie-call.");
+  }
+
+  const bron = parseSiteBron(lastText.text);
 
   return {
     bron,
-    paginas: bouwSite(bron, lead.bedrijfsnaam, { bestanden }),
-    usage: { model: MODEL, tokensIn, tokensOut },
+    paginas: bouwSite(bron, lead.bedrijfsnaam, { bestanden, seo: bouwSeoGegevens(lead, bestanden) }),
+    usage: {
+      model,
+      tokensIn: response.usage.input_tokens,
+      tokensOut: response.usage.output_tokens,
+    },
   };
 }

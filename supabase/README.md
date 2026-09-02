@@ -16,8 +16,9 @@ sections 2 (architecture), 6 (datamodel), and 7 (security/compliance).
 - `functions/` — Edge Functions for the "lichte taken" (section 2):
   `research`, `generatie`, `chat-edit-static`, `chat-edit-shopify`,
   `send-email`, `shopify-staff-invite`, `sourcing-run`, `track-and-serve`
-  (public demo hosting + open-tracking), `cleanup-storage`,
-  `gmail-oauth-exchange`.
+  (public demo hosting + open-tracking + gekoppelde domeinen), `cleanup-storage`,
+  `gmail-oauth-exchange`, `lees-afbeelding`, `domein-koppelen` (Cloudflare
+  custom hostname voor een eigen klantdomein).
 - `tests/` — minimal RLS + race-condition regression checks, runnable
   against a plain local PostgreSQL instance. See `tests/README.md`.
 - The `worker/` project (repo root, sibling to `app/`) is the separate
@@ -66,6 +67,9 @@ sections 2 (architecture), 6 (datamodel), and 7 (security/compliance).
 | `SHOPIFY_PARTNER_ACCESS_TOKEN` | worker | Partner API-token. Let op: die API kan géén winkels aanmaken (enkel `appCreditCreate`); zie `worker/scripts/partner-api-status.ts`. |
 | `SHOPIFY_APP_CLIENT_ID`, `SHOPIFY_APP_CLIENT_SECRET` | chat-edit-shopify, shopify-staff-invite, worker | Van één app in het Shopify **Dev Dashboard**. Hiermee haalt de pipeline per winkel een Admin-token op via de client credentials grant. Scopes op de app: `write_themes`, `write_products`, `write_content`, `write_online_store_navigation` (die laatste is nodig voor het menu — apart van write_content). Custom apps kunnen sinds 2026-01-01 niet meer aangemaakt worden — dit is de enige overgebleven weg. |
 | `SHOPIFY_BROWSER_SESSIE_MAP` | worker | Map waar de Playwright-sessie van het Partner Dashboard bewaard wordt (standaard `.shopify-sessie`). Log daar één keer manueel in; daarna blijft de automatisering ingelogd. |
+| `CLOUDFLARE_API_TOKEN` | domein-koppelen | Token met rechten op enkel de bureauzone (DNS + SSL/Certificates bewerken). Enkel nodig voor een **eigen** klantdomein; een bureau-subdomein werkt zonder. |
+| `CLOUDFLARE_ZONE_ID` | domein-koppelen | Zone-id van de bureauzone, te vinden in het Cloudflare-dashboard. |
+| `CLOUDFLARE_CNAME_DOEL` | domein-koppelen | De hostname in jouw zone waar de klant zijn CNAME naartoe wijst (Cloudflare for SaaS' "CNAME target"). Bewust instelbaar: een gok hier laat de klant een record maken dat nergens op uitkomt, en dat merk je pas uren later. |
 | `TOKEN_ENCRYPTION_KEY` | alle functies die tokens opslaan | Vervangt de naam `GMAIL_TOKEN_ENCRYPTION_KEY` (die blijft werken). Zelfde formaat: base64, 32 bytes. |
 
 ## Gmail API (spec section 2/7 — per-user OAuth, not a shared token)

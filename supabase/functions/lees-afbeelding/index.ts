@@ -1,6 +1,11 @@
 import { handleCorsPreflight, corsHeaders } from "../_shared/cors.ts";
 import { requireUser } from "../_shared/supabase-clients.ts";
-import { createAnthropicClient, calculateKostEur } from "../_shared/anthropic.ts";
+import {
+  MAX_TIER_ONDERSTEUNEND,
+  calculateKostEur,
+  createAnthropicClient,
+  resolveModel,
+} from "../_shared/anthropic.ts";
 
 // Transcribes one uploaded image on demand, so a menu photo dropped into the
 // chat box comes back readable straight away instead of only mattering at the
@@ -14,7 +19,6 @@ import { createAnthropicClient, calculateKostEur } from "../_shared/anthropic.ts
 // hasn't been read yet (see media-ingest.ts), so an upload that happens while
 // the app is closed still gets picked up. The cached result is what stops it
 // being done twice.
-const MODEL = Deno.env.get("MODEL_KWALITEIT") ?? "claude-opus-4-8";
 const PROMPT_VERSIE = "lees-afbeelding-v1";
 
 const LEES_PROMPT = `Je krijgt een foto die een klant heeft aangeleverd, meestal van een menukaart,
@@ -74,9 +78,16 @@ Deno.serve(async (req) => {
     }
     const base64 = btoa(binair);
 
+    const { data: lead } = await supabase
+      .from("leads")
+      .select("ai_model")
+      .eq("id", rij.lead_id)
+      .maybeSingle();
+    const model = resolveModel(lead?.ai_model, { maxTier: MAX_TIER_ONDERSTEUNEND });
+
     const client = createAnthropicClient();
     const response = await client.messages.create({
-      model: MODEL,
+      model,
       max_tokens: 4000,
       messages: [
         {
@@ -96,10 +107,10 @@ Deno.serve(async (req) => {
     await supabase.rpc("record_project_kost_if_under_budget", {
       p_lead_id: rij.lead_id,
       p_stap: "research",
-      p_model: MODEL,
+      p_model: model,
       p_tokens_in: response.usage.input_tokens,
       p_tokens_out: response.usage.output_tokens,
-      p_kost_eur: calculateKostEur(MODEL, response.usage.input_tokens, response.usage.output_tokens),
+      p_kost_eur: calculateKostEur(model, response.usage.input_tokens, response.usage.output_tokens),
       p_prompt_versie: PROMPT_VERSIE,
     });
 

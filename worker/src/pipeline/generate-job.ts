@@ -5,7 +5,12 @@ import {
   leesAangeleverdeAfbeeldingen,
   vindMerkkleuren,
 } from "./media-ingest.js";
-import { calculateKostEur, createAnthropicClient } from "../shared/anthropic.js";
+import {
+  MAX_TIER_ONDERSTEUNEND,
+  calculateKostEur,
+  createAnthropicClient,
+  resolveModel,
+} from "../shared/anthropic.js";
 import type { GebouwdePagina, PaginaMeta, SiteBron } from "../shared/site-builder.js";
 
 const PROMPT_VERSIE = "generatie-v9.1-multipage";
@@ -65,7 +70,9 @@ export async function processGenerateJob(
   await leesAangeleverdeAfbeeldingen(supabase, leadId, async (base64, mediaType, prompt) => {
     const client = createAnthropicClient();
     const antwoord = await client.messages.create({
-      model: process.env.MODEL_KWALITEIT ?? "claude-opus-4-8",
+      // Uitlezen wat er op een foto staat is extractie, geen sitebouw — het
+      // zwaarste model voegt hier niets toe, dus zelfde plafond als research.
+      model: resolveModel(lead.ai_model, { maxTier: MAX_TIER_ONDERSTEUNEND }),
       max_tokens: 4000,
       messages: [
         {
