@@ -1321,6 +1321,33 @@ custom-domain add-on op een vast subdomein, met `DEMO_HOSTING_URL` en
 `NEXT_PUBLIC_DEMO_HOSTING_URL` daarnaartoe. Of dat de herschrijving wegneemt is nog steeds
 onbewezen; het is wel de goedkoopste test en het blijft de eerste die je moet doen.
 
+### Installeren op een tweede machine (2026-09-03)
+
+Sinds het instellingenscherm bestaat, is een verse installatie kort: bouwen, installeren, en
+**twee** waarden invullen.
+
+```
+cd worker && npm run pak-in     # bundelt worker.cjs + node.exe + playwright
+cd ../app && npm run app:build  # installer, 27 MB
+```
+
+Het bestand staat in `app/src-tauri/target/release/bundle/nsis/`. Kopieer het naar de andere
+machine en voer het uit (installeert per gebruiker, dus geen UAC-prompt).
+
+Daarna in de app: inloggen, en bij **Voorkeuren → Worker** enkel de **Supabase-URL** en de
+**service-role-key** invullen. Al de rest — Anthropic, Shopify, analytics, Cloudflare — haalt de
+worker bij het opstarten uit `app_instellingen`, dus die staat er al. Het scherm zegt dat nu ook
+met zoveel woorden; het vroeg tot vandaag zes velden alsof ze allemaal nodig waren, waarvan drie
+als verplicht.
+
+Wat op zo'n machine nog gebeurt bij eerste gebruik: Playwright haalt Chromium op, ongeveer
+150 MB, en enkel nodig voor review-screenshots en de Shopify-automatisering. Dat zit bewust niet
+in de installer.
+
+Wat er níet mee verhuist: de lokale site-hosting op poort 4321 draait per machine. Open je het
+dashboard op de laptop terwijl de worker op de desktop draait, dan wijst die link naar niets —
+elke machine bedient zijn eigen kopie.
+
 ### De worker serveert de site nu zelf, zodat ze in een browser te tonen is
 
 Het probleem hierboven is niet op te lossen op `*.supabase.co`: die gateway herschrijft élk

@@ -48,31 +48,32 @@ const VELDEN: Veld[] = [
   {
     sleutel: "anthropic_api_key",
     label: "Anthropic-sleutel",
-    uitleg: "Voor research, generatie en review.",
-    vereist: true,
+    uitleg:
+      "Hoeft hier niet meer als hij bij Instellingen staat — de worker haalt hem daar op bij het opstarten. Vul hem hier alleen in als je hem per machine wil overschrijven.",
+    vereist: false,
   },
   {
     sleutel: "shopify_partner_organization_id",
     label: "Shopify partner-organisatie-ID",
-    uitleg: "Enkel nodig om Shopify-winkels aan te maken.",
+    uitleg: "Staat normaal bij Instellingen; daar wordt hij opgehaald.",
     vereist: false,
   },
   {
     sleutel: "shopify_partner_access_token",
     label: "Shopify partner-token",
-    uitleg: "Enkel nodig om Shopify-winkels aan te maken.",
+    uitleg: "Staat normaal bij Instellingen; daar wordt hij opgehaald.",
     vereist: false,
   },
   {
     sleutel: "shopify_app_client_id",
     label: "Shopify app client-ID",
-    uitleg: "Uit het Dev Dashboard; nodig om een winkel in te richten.",
+    uitleg: "Staat normaal bij Instellingen; daar wordt hij opgehaald.",
     vereist: false,
   },
   {
     sleutel: "shopify_app_client_secret",
     label: "Shopify app client-secret",
-    uitleg: "Uit het Dev Dashboard; nodig om een winkel in te richten.",
+    uitleg: "Staat normaal bij Instellingen; daar wordt hij opgehaald.",
     vereist: false,
   },
 ];
@@ -153,6 +154,14 @@ export function WorkerInstellingen() {
             Hij start mee met deze app en draait onzichtbaar op de achtergrond. Deze gegevens
             blijven op deze computer staan en zitten niet in het installatiebestand — de
             service-role-key geeft volledige toegang tot de database.
+          </p>
+
+          {/* Op een nieuwe machine is dit de hele setup. Zonder deze regel ga je
+              alle velden invullen terwijl de rest al lang in de database staat. */}
+          <p className="rounded-xl border border-blue-100 bg-blue-50/60 p-2 text-xs text-slate-600">
+            Op een nieuwe computer zijn alleen de eerste twee nodig. De rest haalt de worker bij
+            het opstarten op uit <span className="font-medium">Instellingen</span>, dus die hoef je
+            hier niet opnieuw in te vullen.
           </p>
 
           <div className="space-y-3">
