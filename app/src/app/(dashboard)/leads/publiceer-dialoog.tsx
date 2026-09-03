@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import type { SiteVersion } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { activateVersion, deactivateVersion } from "./version-actions";
-import { demoLink, linkRendertInBrowser } from "@/lib/demo-link";
+import { demoLink, linkRendertInBrowser, lokaleLink } from "@/lib/demo-link";
 
 // Wat er gebeurt als je op "Zet live" drukt, vóór het gebeurt.
 //
@@ -116,13 +116,29 @@ export function PubliceerDialoog({
                 het een klant is.
               </p>
               {doel.url && !linkRendertInBrowser() ? (
-                <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
-                  Let op: op dit adres toont een browser de broncode in plaats van de site. Supabase
-                  serveert alles op <code>*.supabase.co</code> als platte tekst. De preview hier in
-                  de app klopt wel — gebruik <span className="font-medium">Volledig scherm</span> om
-                  de site te tonen. Zodra de hosting op een eigen domein staat, werkt deze link ook
-                  in een browser.
-                </p>
+                <div className="mt-2 space-y-1.5 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                  <p>
+                    Op dit adres toont een browser de broncode in plaats van de site: Supabase
+                    serveert alles op <code>*.supabase.co</code> als platte tekst. Dat verandert
+                    zodra de hosting op een eigen domein staat.
+                  </p>
+                  <p>
+                    Om ze nu wél te tonen, serveert de worker de site op deze machine:
+                  </p>
+                  <p>
+                    <a
+                      href={lokaleLink(leadId)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="break-all font-medium underline"
+                    >
+                      {lokaleLink(leadId)}
+                    </a>
+                  </p>
+                  <p className="opacity-80">
+                    Werkt zolang de worker draait, en alleen op deze computer.
+                  </p>
+                </div>
               ) : null}
             </>
           ) : (

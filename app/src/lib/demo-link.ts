@@ -31,6 +31,22 @@ export function demoLink(leadId: string): string | null {
 }
 
 /**
+ * De link naar de site zoals de worker ze lokaal serveert.
+ *
+ * Dit is de enige manier om de site vandaag in een echte browser te tonen: op
+ * *.supabase.co komt ze als platte tekst binnen (zie hieronder). De worker
+ * serveert dezelfde bestanden uit Storage zonder gateway ertussen, dus met de
+ * juiste Content-Type. Werkt zolang de worker draait, en enkel op deze machine.
+ */
+export function lokaleLink(leadId: string): string {
+  const basis = (process.env.NEXT_PUBLIC_LOKALE_HOSTING_URL ?? "http://localhost:4321").replace(
+    /\/$/,
+    "",
+  );
+  return `${basis}/${leadId}/`;
+}
+
+/**
  * Of die link ook echt een site tóónt in een browser.
  *
  * Op *.supabase.co niet. De edge-gateway daar herschrijft élk antwoord dat niet

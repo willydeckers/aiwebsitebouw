@@ -1,6 +1,7 @@
 import { createWorkerClient } from "./shared/supabase.js";
 import { controleerOmgeving } from "./shared/omgeving.js";
 import { laadInstellingen } from "./shared/instellingen.js";
+import { lokaleHostingUrl, startLokaleHosting } from "./hosting/lokale-server.js";
 import { processGenerateJob } from "./pipeline/generate-job.js";
 import { processResearchJob } from "./pipeline/research-job.js";
 import { processShopifyStoreAanmaakJob } from "./shopify/store-aanmaak-job.js";
@@ -253,6 +254,10 @@ async function start() {
     process.exit(1);
   }
 
+  // De site lokaal serveren zodat ze in een browser te tonen is; op
+  // *.supabase.co komt ze als platte tekst binnen. Zie lokale-server.ts.
+  startLokaleHosting();
+
   stopBijGeslotenInvoer();
 
   void supabase
@@ -262,7 +267,7 @@ async function start() {
 
   console.log(
     "Worker gestart — pollt jobs (research, generatie, review, shopify_opbouw, " +
-      "shopify_store_aanmaak) elke 5s.",
+      `shopify_store_aanmaak) elke 5s. Sites bekijken: ${lokaleHostingUrl()}/<lead-id>/`,
   );
 
   // Reclaim before polling, so a restart picks up where the last one was killed

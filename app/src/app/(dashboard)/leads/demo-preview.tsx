@@ -14,6 +14,7 @@ import {
 } from "./preview-document";
 import { SendDialog } from "./send-dialog";
 import { SitePreviewVenster } from "./site-preview-venster";
+import { linkRendertInBrowser, lokaleLink } from "@/lib/demo-link";
 
 type Viewport = "desktop" | "mobiel";
 
@@ -182,7 +183,34 @@ export function DemoPreview({
       </div>
 
       {linkOpen && demoUrl ? (
-        <p className="break-all rounded-xl border border-blue-100 p-2 text-xs text-slate-600">{demoUrl}</p>
+        <div className="space-y-2 rounded-xl border border-blue-100 p-2 text-xs">
+          <div>
+            <p className="font-medium text-slate-700">Publieke link</p>
+            <p className="break-all text-slate-600">{demoUrl}</p>
+            {!linkRendertInBrowser() ? (
+              <p className="mt-0.5 text-slate-400">
+                Toont broncode in een browser — Supabase serveert alles op *.supabase.co als platte
+                tekst. Wel bruikbaar voor de preview hierboven en voor de review-loop.
+              </p>
+            ) : null}
+          </div>
+
+          {/* De enige link die vandaag écht een site toont. */}
+          <div>
+            <p className="font-medium text-slate-700">Om te tonen in een browser</p>
+            <a
+              href={lokaleLink(lead.id)}
+              target="_blank"
+              rel="noreferrer"
+              className="break-all text-blue-600 underline"
+            >
+              {lokaleLink(lead.id)}
+            </a>
+            <p className="mt-0.5 text-slate-400">
+              De worker serveert de site op deze machine. Werkt zolang die draait.
+            </p>
+          </div>
+        </div>
       ) : null}
 
       {reviewOpen && reviewLog.length > 0 ? (

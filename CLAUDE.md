@@ -1321,6 +1321,42 @@ custom-domain add-on op een vast subdomein, met `DEMO_HOSTING_URL` en
 `NEXT_PUBLIC_DEMO_HOSTING_URL` daarnaartoe. Of dat de herschrijving wegneemt is nog steeds
 onbewezen; het is wel de goedkoopste test en het blijft de eerste die je moet doen.
 
+### De worker serveert de site nu zelf, zodat ze in een browser te tonen is
+
+Het probleem hierboven is niet op te lossen op `*.supabase.co`: die gateway herschrijft élk
+antwoord dat niet al `text/plain` is, dus een browser toont daar broncode. Er is geen
+content-type dat eraan ontsnapt.
+
+Dus doet de worker het zelf. `worker/src/hosting/lokale-server.ts` start mee met de worker op
+poort **4321** (`LOKALE_HOSTING_POORT` om te wijzigen) en serveert
+`http://localhost:4321/{leadId}/` — dezelfde bestanden uit Storage, zonder gateway ertussen, met
+de juiste Content-Type.
+
+- **Actieve versie eerst, anders de nieuwste.** Zo is een concept ook te bekijken vóór het live
+  staat, wat precies is wat je tijdens het werken wil.
+- **Formulieren en reviews worden doorgestuurd** naar de echte `track-and-serve`. Die kent de
+  honeypot, de rate limiting en de moderatie; dat hier half overdoen zou twee versies van
+  dezelfde regels opleveren. Een demo waarin iemand het contactformulier invult, loopt dus niet
+  halverwege stuk.
+- **Bewust geen tweede track-and-serve**: geen toegangscodes, geen sitemap, geen
+  domeinroutering. Dit is een kijkvenster op de bestanden, geen hostinglaag.
+- Losstaand te starten met `cd worker && npx tsx --env-file=.env scripts/toon-site.ts`, handig om
+  iets te tonen zonder de jobs-lus.
+
+De app toont de link op twee plekken: bij **Publieke link** in het leadpaneel (naast de
+functie-URL, met het verschil erbij uitgelegd) en in de **publiceer-dialoog**, waar de
+waarschuwing over `*.supabase.co` nu een werkende link meekrijgt in plaats van alleen te zeggen
+wat niet kan.
+
+**Geverifieerd in een echte browser**: Bloemen Gielen (`Content-Type: text/html`, geen
+sandbox-CSP, site rendert volledig met beelden en lettertypes) en Tuinbouw Hendrix — dat is een
+meerpagina-site, en daar werkt het klikken tussen pagina's, met de juiste actieve markering in de
+nav.
+
+**Beperkingen, expliciet**: alleen op deze machine, en alleen zolang de worker draait. Het is
+geen vervanging voor de hosting — de custom-domain-stap blijft wat je nodig hebt om een klant een
+link te sturen. Dit is om het te kúnnen tonen.
+
 ### Publiceren, offline halen, contactmeldingen en bronnen (2026-09-02, latere ronde)
 
 Zes punten uit gebruik, met wat ze bleken te vragen:
