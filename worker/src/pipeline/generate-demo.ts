@@ -5,6 +5,7 @@ import {
   MULTIPAGE_PROMPT,
   bouwSite,
   parseSiteBron,
+  type AnalyticsGegevens,
   type GebouwdePagina,
   type SeoGegevens,
   type SiteBron,
@@ -98,6 +99,21 @@ function bouwSeoGegevens(lead: Lead, bestanden: string[]): SeoGegevens | undefin
   };
 }
 
+/**
+ * Bezoekerscijfers zijn een keuze van het bureau, niet van de klant, dus één
+ * omgevingsvariabele in plaats van een kolom per lead: het meetscript koppelt
+ * een bezoek aan de hostnaam waar het draait (zie bouwConsentRuntime), en die
+ * verschilt vanzelf per klant zodra hun eigen domein gekoppeld is.
+ *
+ * Staat de variabele niet ingesteld, dan komt er geen meetscript op de site en
+ * dus ook geen cookiemelding — precies dezelfde alles-of-niets-lijn als bij
+ * DEMO_HOSTING_URL hierboven.
+ */
+function bouwAnalyticsGegevens(): AnalyticsGegevens | undefined {
+  const scriptUrl = (process.env.ANALYTICS_SCRIPT_URL ?? "").trim();
+  return scriptUrl ? { scriptUrl } : undefined;
+}
+
 /** Review-loop path (spec 3.4): regenerate the whole site with the reviewer's
  *  findings as extra instructions. */
 export function regenerateWithFeedback(
@@ -184,7 +200,11 @@ ${lead.research_samenvatting ?? ""}`);
 
   return {
     bron,
-    paginas: bouwSite(bron, lead.bedrijfsnaam, { bestanden, seo: bouwSeoGegevens(lead, bestanden) }),
+    paginas: bouwSite(bron, lead.bedrijfsnaam, {
+      bestanden,
+      seo: bouwSeoGegevens(lead, bestanden),
+      analytics: bouwAnalyticsGegevens(),
+    }),
     usage: {
       model,
       tokensIn: response.usage.input_tokens,

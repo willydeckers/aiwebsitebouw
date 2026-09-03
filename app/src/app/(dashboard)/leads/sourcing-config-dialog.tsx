@@ -80,7 +80,7 @@ export function SourcingConfigDialog({ open, onClose }: { open: boolean; onClose
     <div className="fixed inset-0 z-20 flex items-center justify-center bg-slate-900/20 backdrop-blur-sm">
       <div className="max-h-[85vh] w-full max-w-md space-y-3 overflow-y-auto rounded-3xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-blue-200/40 backdrop-blur-xl">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-slate-900">Sourcing-configuratie (3.1a)</h2>
+          <h2 className="text-base font-semibold text-slate-900">Automatisch leads zoeken</h2>
           <button
             type="button"
             onClick={onClose}

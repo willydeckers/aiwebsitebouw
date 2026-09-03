@@ -88,7 +88,7 @@ export function ConvertButton({
   return (
     <div className="space-y-3 rounded-xl border border-blue-200 bg-blue-50/40 p-3">
       <p className="text-xs text-slate-500">
-        Leg de afspraak vast (spec sectie 3.7 — eenrichtingsverkeer):
+        Leg de afspraak vast — dit kan later niet meer ongedaan gemaakt worden:
       </p>
 
       <div className="space-y-1">

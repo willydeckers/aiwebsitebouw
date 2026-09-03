@@ -98,8 +98,17 @@ const BRON = `===META===
 </main>
 `;
 
+// Met ANALYTICS_SCRIPT_URL erbij komt de cookiemelding mee, zodat ook die in
+// een echte browser te bekijken is — inclusief of het meetscript pas ná
+// "Accepteren" wordt opgehaald. Zonder de variabele blijft ze weg, precies
+// zoals bij een echte generatie.
+const analyticsScript = (process.env.ANALYTICS_SCRIPT_URL ?? "").trim();
+
 mkdirSync(uit, { recursive: true });
-for (const pagina of bouwSite(parseSiteBron(BRON), "Widgetdemo", { bestanden: ["brochure.pdf"] })) {
+for (const pagina of bouwSite(parseSiteBron(BRON), "Widgetdemo", {
+  bestanden: ["brochure.pdf"],
+  analytics: analyticsScript ? { scriptUrl: analyticsScript } : undefined,
+})) {
   writeFileSync(`${uit}/${pagina.bestand}`, pagina.html);
   console.log("geschreven:", pagina.bestand, pagina.html.length, "bytes");
 }

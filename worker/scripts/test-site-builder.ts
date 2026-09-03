@@ -11,6 +11,7 @@
 
 import assert from "node:assert/strict";
 import {
+  PRIVACY_BESTAND,
   SiteBuildError,
   bouwLocalBusinessJsonLd,
   bouwRobotsTxt,
@@ -89,7 +90,8 @@ test("parst het ===SECTIE===-formaat en negeert prose ervoor", () => {
 
 test("bouwt één bestand per pagina met identieke nav en footer", () => {
   const paginas = bouwSite(parseSiteBron(GELDIG), "Tuinbouw Hendrix");
-  assert.equal(paginas.length, 4);
+  // Vier van het model, plus de privacypagina die de code er altijd bij zet.
+  assert.equal(paginas.length, 5);
 
   const navBlokken = paginas.map((p) => p.html.split("<header>")[1].split("</header>")[0]);
   const footerBlokken = paginas.map((p) => p.html.split("<footer>")[1].split("</footer>")[0]);
@@ -105,6 +107,8 @@ test("bouwt één bestand per pagina met identieke nav en footer", () => {
 
 test("markeert per pagina elke menulink naar die pagina als actief", () => {
   for (const pagina of bouwSite(parseSiteBron(GELDIG), "Tuinbouw Hendrix")) {
+    // De privacypagina staat bewust niet in het menu; daar hoort niets actief.
+    if (pagina.bestand === PRIVACY_BESTAND) continue;
     const nav = pagina.html.split("<header>")[1].split("</header>")[0];
     const actieveTags = nav.match(/<a[^>]*aria-current="page"[^>]*>/g) ?? [];
     // Desktop- en mobielmenu bevatten allebei een link naar deze pagina.
@@ -238,7 +242,7 @@ const GENEST = `===META===
 
 test("bouwt een subpagina die enkel via haar ouderpagina bereikbaar is", () => {
   const paginas = bouwSite(parseSiteBron(GENEST), "Test");
-  assert.equal(paginas.length, 4);
+  assert.equal(paginas.length, 5);
   assert.ok(paginas.some((p) => p.bestand === "tuinaanleg.html"));
 });
 
@@ -312,9 +316,9 @@ test("controleert downloadlinks tegen de geüploade bestanden", () => {
     '<main><h1>Tuinaanleg</h1><div data-widget="downloads"><a href="bestanden/prijslijst.pdf" download>Prijslijst</a></div></main>',
   );
   // Zonder lijst: niet gecontroleerd (de aanroeper kent de bestanden nog niet).
-  assert.equal(bouwSite(parseSiteBron(metDownload), "Test").length, 4);
+  assert.equal(bouwSite(parseSiteBron(metDownload), "Test").length, 5);
   // Met lijst: bekend bestand mag, onbekend niet.
-  assert.equal(bouwSite(parseSiteBron(metDownload), "Test", { bestanden: ["prijslijst.pdf"] }).length, 4);
+  assert.equal(bouwSite(parseSiteBron(metDownload), "Test", { bestanden: ["prijslijst.pdf"] }).length, 5);
   assert.throws(
     () => bouwSite(parseSiteBron(metDownload), "Test", { bestanden: ["iets-anders.pdf"] }),
     /prijslijst\.pdf/,
@@ -407,6 +411,8 @@ test("laat een omschrijving van de juiste lengte ongemoeid", () => {
 test("zet meta description, canonical en og-tags op elke pagina", () => {
   const paginas = bouwSite(parseSiteBron(GELDIG), "Test BV", { seo: SEO });
   for (const pagina of paginas) {
+    // De privacypagina hoort juist niet geindexeerd of gedeeld te worden.
+    if (pagina.bestand === PRIVACY_BESTAND) continue;
     assert.match(pagina.html, /<meta name="description" content="[^"]+">/);
     // De home canonicaliseert naar de map-URL, elke andere pagina naar
     // haar eigen bestand — dezelfde vorm als in de sitemap.
@@ -519,6 +525,89 @@ test("weigert een afbeelding zonder alt die niet aan te vullen is", () => {
     () => bouwSite(parseSiteBron(metBeeld), "Test BV", { bestanden: ["team.jpg"] }),
     (err: unknown) => err instanceof SiteBuildError && /alt-attribuut/.test((err as Error).message),
   );
+});
+
+// ── Privacypagina en cookiemelding ────────────────────────────────────────
+
+test("zet op elke site een privacypagina die het model niet geschreven heeft", () => {
+  const paginas = bouwSite(parseSiteBron(GELDIG), "Tuinbouw Hendrix");
+  const privacy = paginas.find((p) => p.bestand === PRIVACY_BESTAND);
+  assert.ok(privacy, "geen privacypagina gebouwd");
+  assert.match(privacy!.html, /<h1[^>]*>Privacybeleid<\/h1>/);
+  assert.match(privacy!.html, /Tuinbouw Hendrix/);
+  // Dezelfde schil als de rest: het is een pagina van de site, geen los blad.
+  assert.ok(privacy!.html.includes("<header>"), "privacypagina mist de gedeelde nav");
+  assert.ok(privacy!.html.includes("<footer>"), "privacypagina mist de gedeelde footer");
+  // En ze hoort niet in de zoekresultaten (en dus ook niet in de sitemap, die
+  // uit site_versions.paginas komt en deze pagina daarom nooit bevat).
+  assert.match(privacy!.html, /<meta name="robots" content="noindex">/);
+});
+
+test("linkt naar het privacybeleid vanuit de footer van elke pagina", () => {
+  for (const pagina of bouwSite(parseSiteBron(GELDIG), "Test")) {
+    // Binnen <footer>...</footer>, niet er ergens achteraan geplakt: dat laatste
+    // ziet er onderaan de pagina hetzelfde uit maar hangt los in de body.
+    const footer = pagina.html.split("<footer>")[1].split("</footer>")[0];
+    assert.ok(
+      footer.includes(`href="${PRIVACY_BESTAND}"`),
+      `${pagina.bestand}: geen privacylink binnen de footer`,
+    );
+  }
+});
+
+test("beschrijft in het privacybeleid enkel wat de site echt doet", () => {
+  const zonder = bouwSite(parseSiteBron(GELDIG), "Test").find((p) => p.bestand === PRIVACY_BESTAND)!;
+  assert.ok(!/formulier invult/.test(zonder.html), "belooft formuliergegevens die er niet zijn");
+
+  const metFormulier = GELDIG.replace(
+    "<main><h1>Contact</h1>",
+    '<main><h1>Contact</h1><div data-widget="formulier"><form><input name="naam"><textarea name="bericht"></textarea><div data-honeypot><input name="website"></div><button type="submit">Ok</button></form><p data-status-melding hidden></p></div>',
+  );
+  const met = bouwSite(parseSiteBron(metFormulier), "Test").find((p) => p.bestand === PRIVACY_BESTAND)!;
+  assert.match(met.html, /formulier invult/);
+});
+
+test("laat de cookiemelding weg zolang er niets te meten valt", () => {
+  for (const pagina of bouwSite(parseSiteBron(GELDIG), "Test")) {
+    assert.ok(!/data-consent-melding/.test(pagina.html), `${pagina.bestand}: melding zonder reden`);
+  }
+});
+
+test("vraagt toestemming voor het meetscript, en laadt het pas daarna", () => {
+  const paginas = bouwSite(parseSiteBron(GELDIG), "Test", {
+    analytics: { scriptUrl: "https://plausible.io/js/script.js" },
+  });
+
+  for (const pagina of paginas) {
+    assert.ok(/data-consent-melding/.test(pagina.html), `${pagina.bestand}: geen cookiemelding`);
+    // Het script mag niet als <script src> in de HTML staan: dan is het al
+    // opgehaald voor de bezoeker iets kon kiezen, en is de keuze decoratie.
+    assert.ok(
+      !/<script[^>]+src="https:\/\/plausible\.io/.test(pagina.html),
+      `${pagina.bestand}: meetscript staat al in de HTML`,
+    );
+  }
+
+  const privacy = paginas.find((p) => p.bestand === PRIVACY_BESTAND)!;
+  assert.match(privacy.html, /data-consent-herzien/, "geen manier om de keuze te herzien");
+});
+
+test("laat een eigen privacypagina van het model voorgaan", () => {
+  const eigen =
+    GELDIG.replace(
+      '{"bestand":"contact.html","titel":"Contact","nav_label":"Contact"}',
+      '{"bestand":"contact.html","titel":"Contact","nav_label":"Contact"},\n' +
+        '  {"bestand":"privacybeleid.html","titel":"Privacybeleid","nav_label":"Privacy"}',
+    ).replace(
+      '<a href="contact.html" class="cta">Vraag een offerte</a>',
+      '<a href="contact.html" class="cta">Vraag een offerte</a>\n' +
+        '<a href="privacybeleid.html" class="text-slate-600" data-nav-actief="text-emerald-700 font-semibold">Privacy</a>',
+    ) + "===PAGINA:privacybeleid.html===\n<main><h1>Onze privacyverklaring</h1></main>\n";
+  const paginas = bouwSite(parseSiteBron(eigen), "Test");
+  assert.equal(paginas.filter((p) => p.bestand === PRIVACY_BESTAND).length, 1);
+  // De pagina van het model, niet die van ons: die van ons draagt altijd noindex.
+  const privacy = paginas.find((p) => p.bestand === PRIVACY_BESTAND)!;
+  assert.ok(!/content="noindex"/.test(privacy.html), "eigen privacypagina overschreven");
 });
 
 console.log(`\n${geslaagd} tests geslaagd${process.exitCode ? " (met fouten)" : ""}`);

@@ -93,7 +93,7 @@ export function PipelineButton({
         type="button"
         onClick={handleClick}
         disabled={pending || alreadyDone || geblokkeerd}
-        title="Doorloopt research (3.2) → generatie (3.3) → review-loop (3.4) automatisch; slaat stappen over die al gebeurd zijn."
+        title="Zoekt eerst info op over het bedrijf, genereert dan de site, en laat een AI-reviewer meekijken tot alles klopt; stappen die al gebeurd zijn worden overgeslagen."
         className="w-full rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-md shadow-blue-300/50 transition hover:bg-blue-500 disabled:opacity-50"
       >
         {pending

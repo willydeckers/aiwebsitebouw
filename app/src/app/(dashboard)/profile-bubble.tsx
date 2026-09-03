@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
@@ -25,6 +26,31 @@ export function ProfileBubble({ user }: { user: User }) {
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const gebruiker = gebruikerFromEmail(user.email);
+  const wrapper = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function opKlik(e: MouseEvent) {
+      if (!wrapper.current?.contains(e.target as Node)) {
+        setOpen(false);
+        setEditing(false);
+      }
+    }
+    function opToets(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setOpen(false);
+        setEditing(false);
+      }
+    }
+
+    document.addEventListener("mousedown", opKlik);
+    document.addEventListener("keydown", opToets);
+    return () => {
+      document.removeEventListener("mousedown", opKlik);
+      document.removeEventListener("keydown", opToets);
+    };
+  }, [open]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -76,7 +102,7 @@ export function ProfileBubble({ user }: { user: User }) {
   const initials = label.trim().slice(0, 2).toUpperCase();
 
   return (
-    <div className="relative">
+    <div className="relative" ref={wrapper}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -97,23 +123,50 @@ export function ProfileBubble({ user }: { user: User }) {
       </button>
 
       {open && !editing ? (
-        <div className="absolute right-0 z-10 mt-2 w-48 rounded-2xl border border-white/60 bg-white/90 p-3 text-sm shadow-lg shadow-blue-200/40 backdrop-blur-xl">
-          <p className="truncate font-medium text-slate-800">{label}</p>
-          <p className="truncate text-xs text-slate-500">{user.email}</p>
-          <button
-            type="button"
-            onClick={startEditing}
-            className="mt-2 w-full rounded-lg border border-blue-200 bg-white/70 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-blue-50"
-          >
-            Profiel bewerken
-          </button>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="mt-1 w-full rounded-lg border border-blue-200 bg-white/70 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-blue-50"
-          >
-            Uitloggen
-          </button>
+        // Een menu dat enkel je eigen naam herhaalt is een doodlopend spoor.
+        // Vanaf hier moet je ergens naartoe kunnen: naar je instellingen, naar
+        // je voorkeuren, of eruit.
+        <div className="absolute right-0 z-20 mt-2 w-56 overflow-hidden rounded-2xl border border-slate-200 bg-white text-sm shadow-xl shadow-slate-300/40">
+          <div className="border-b border-slate-100 px-3 py-2.5">
+            <p className="truncate font-medium text-slate-800">{label}</p>
+            <p className="truncate text-xs text-slate-500">{user.email}</p>
+          </div>
+
+          <div className="p-1.5">
+            <Link
+              href="/instellingen"
+              onClick={() => setOpen(false)}
+              className="block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100"
+            >
+              Instellingen
+              <span className="block text-xs text-slate-400">API-sleutels en configuratie</span>
+            </Link>
+            <Link
+              href="/voorkeuren"
+              onClick={() => setOpen(false)}
+              className="block rounded-lg px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-100"
+            >
+              Voorkeuren
+              <span className="block text-xs text-slate-400">Gmail, AI-regels, weergave</span>
+            </Link>
+            <button
+              type="button"
+              onClick={startEditing}
+              className="w-full rounded-lg px-2.5 py-2 text-left text-sm text-slate-700 hover:bg-slate-100"
+            >
+              Profiel bewerken
+            </button>
+          </div>
+
+          <div className="border-t border-slate-100 p-1.5">
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="w-full rounded-lg px-2.5 py-2 text-left text-sm text-slate-700 hover:bg-slate-100"
+            >
+              Uitloggen
+            </button>
+          </div>
         </div>
       ) : null}
 

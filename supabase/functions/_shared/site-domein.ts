@@ -64,6 +64,9 @@ export function isEigenPlatformHost(host: string, hostingBase: string): boolean 
   }
 }
 
+/** Een lead-id is een UUID; dat is exact wat er in het pad van een demo-link staat. */
+const LEAD_ID_PATROON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function bepaalRouteVorm(
   host: string,
   pathname: string,
@@ -72,6 +75,26 @@ export function bepaalRouteVorm(
 ): RouteVorm | null {
   const basis = hostingBase.replace(/\/$/, "");
   const zonderPoort = host.split(":")[0].toLowerCase();
+
+  // Een lead-id vooraan in het pad is het betrouwbaarste signaal dat dit de
+  // functie-URL is, en het wordt daarom eerst gecontroleerd.
+  //
+  // De Host-header is dat signaal namelijk niet: een Edge Function ziet niet
+  // noodzakelijk de hostnaam waarop de bezoeker de site opvroeg. Toen deze
+  // functie enkel op die header afging, viel élke demo-link door naar de
+  // klantdomein-opzoeking, vond daar niets, en gaf 404 — ook de links die het
+  // altijd gedaan hadden. Eén keer live vastgesteld, niet in een test: de
+  // testen gaven de host mee die ze zelf verzonnen.
+  if (LEAD_ID_PATROON.test(segments[0] ?? "")) {
+    const leadId = segments[0];
+    return {
+      soort: "platform",
+      leadId,
+      segmenten: segments.slice(1),
+      basisPad: pathname.slice(0, pathname.indexOf(leadId) + leadId.length) + "/",
+      basisUrl: basis ? `${basis}/${leadId}` : null,
+    };
+  }
 
   if (!isEigenPlatformHost(host, basis)) {
     return {

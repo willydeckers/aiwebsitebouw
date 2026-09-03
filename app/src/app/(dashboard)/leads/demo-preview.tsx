@@ -13,6 +13,7 @@ import {
   type PreviewNavigatieBericht,
 } from "./preview-document";
 import { SendDialog } from "./send-dialog";
+import { SitePreviewVenster } from "./site-preview-venster";
 
 type Viewport = "desktop" | "mobiel";
 
@@ -40,6 +41,9 @@ export function DemoPreview({
   const [chatOpen, setChatOpen] = useState(false);
   const [previewVersion, setPreviewVersion] = useState(0);
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [site, setSite] = useState<DemoSite | null>(null);
   const [huidigePagina, setHuidigePagina] = useState(START_PAGINA);
   const [previewHash, setPreviewHash] = useState("");
@@ -83,6 +87,9 @@ export function DemoPreview({
     function onMessage(event: MessageEvent) {
       const bericht = event.data as PreviewNavigatieBericht | undefined;
       if (bericht?.type !== PREVIEW_NAVIGATIE_BERICHT) return;
+      // Staat het volledige scherm open, dan hoort de klik daar thuis: beide
+      // luisteraars laten reageren zou de pagina hier ongemerkt meeverzetten.
+      if (previewOpen) return;
       if (!site) return;
       if (!site[bericht.bestand]) {
         setPreviewError(`Deze link wijst naar ${bericht.bestand}, maar die pagina bestaat niet in deze versie.`);
@@ -95,7 +102,7 @@ export function DemoPreview({
 
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [site]);
+  }, [site, previewOpen]);
 
   const paginaLabel = (bestand: string) =>
     siteVersion.paginas?.find((p) => p.bestand === bestand)?.nav_label ?? bestand;
@@ -107,15 +114,8 @@ export function DemoPreview({
 
   return (
     <section className="mt-6 space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-slate-700">
-          Demo-preview
-          {site && Object.keys(site).length > 1 ? (
-            <span className="ml-2 font-normal text-slate-400">
-              {paginaLabel(huidigePagina)} — klik in de navigatie om te bladeren
-            </span>
-          ) : null}
-        </h3>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-medium text-slate-700">Demo-preview</h3>
         <div className="flex gap-1 text-xs">
           {(["desktop", "mobiel"] as const).map((v) => (
             <button
@@ -131,6 +131,14 @@ export function DemoPreview({
               {v === "desktop" ? "Desktop" : "Mobiel"}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => setPreviewOpen(true)}
+            title="Bekijk de site op volledig scherm"
+            className="rounded-xl border border-blue-200 px-2 py-1 font-medium text-slate-600 hover:bg-blue-50"
+          >
+            Volledig scherm
+          </button>
         </div>
       </div>
 
@@ -149,15 +157,36 @@ export function DemoPreview({
       </div>
       {previewHtml && previewError ? <p className="text-xs text-red-600">{previewError}</p> : null}
 
-      {demoUrl ? (
-        <p className="text-xs text-slate-400">
-          Publieke link: <span className="text-slate-500">{demoUrl}</span>
-        </p>
+      {/* De publieke link en het review-log stonden hier altijd volledig
+          uitgeklapt, en dat is het meeste van wat je niet nodig hebt terwijl je
+          naar de site kijkt. Ze staan er nog, maar pas als je erom vraagt. */}
+      <div className="flex flex-wrap gap-2 text-xs">
+        {demoUrl ? (
+          <button
+            type="button"
+            onClick={() => setLinkOpen((v) => !v)}
+            className="rounded-xl border border-blue-200 px-2 py-1 font-medium text-slate-600 hover:bg-blue-50"
+          >
+            {linkOpen ? "Verberg publieke link" : "Publieke link"}
+          </button>
+        ) : null}
+        {reviewLog.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setReviewOpen((v) => !v)}
+            className="rounded-xl border border-blue-200 px-2 py-1 font-medium text-slate-600 hover:bg-blue-50"
+          >
+            {reviewOpen ? "Verberg review-log" : `Review-log (${reviewLog.length})`}
+          </button>
+        ) : null}
+      </div>
+
+      {linkOpen && demoUrl ? (
+        <p className="break-all rounded-xl border border-blue-100 p-2 text-xs text-slate-600">{demoUrl}</p>
       ) : null}
 
-      {reviewLog.length > 0 ? (
-        <div className="space-y-1 text-sm">
-          <h4 className="font-medium text-slate-700">Review-log (3.4)</h4>
+      {reviewOpen && reviewLog.length > 0 ? (
+        <div className="space-y-1 rounded-xl border border-blue-100 p-2 text-sm">
           {reviewLog.map((entry) => (
             <p key={entry.id} className="text-slate-600">
               [{entry.bron}] {entry.instructie_of_bevinding ?? entry.resultaat ?? entry.error_message}
@@ -171,7 +200,7 @@ export function DemoPreview({
       <div className="space-y-1">
         <div className="flex items-center justify-between">
           <h4 className="text-xs font-medium text-slate-500">
-            Aanpassen — typ hier wat er moet veranderen (3.5)
+            Aanpassen — typ hier wat er moet veranderen
           </h4>
           {/* The strip here shows the last few lines; the full window shows the
               whole thread and takes dragged-in files. Same conversation. */}
@@ -262,20 +291,10 @@ export function DemoPreview({
           </button>
         </div>
 
-        {/* Same text, bigger hammer: a patch edit changes what you asked for,
-            a regeneration rebuilds the whole site with it as guidance. */}
-        <button
-          type="button"
-          onClick={chat.genereerOpnieuw}
-          disabled={chat.bezig || chat.uploadBezig}
-          className="w-full rounded-xl border border-blue-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-blue-50 disabled:opacity-50"
-        >
-          {chat.bezig
-            ? "Bezig..."
-            : chat.invoer.trim()
-              ? "Of: hele site opnieuw genereren met deze instructie"
-              : "Of: hele site opnieuw genereren"}
-        </button>
+        {/* Hier stond ook nog een knop "of: hele site opnieuw genereren".
+            Twee manieren om hetzelfde vakje te gebruiken riep vooral de vraag
+            op waar een instructie thuishoort; hergenereren is nu een keuze in
+            de grote chatbox, waar de uitleg erbij past. */}
         {chat.fout ? <p className="text-xs text-red-600">{chat.fout}</p> : null}
       </div>
 
@@ -285,7 +304,7 @@ export function DemoPreview({
         disabled={lead.status !== "klaar" || !lead.contact_email}
         title={
           lead.status !== "klaar"
-            ? "Enkel beschikbaar zodra de status 'Klaar' is (spec 3.6)."
+            ? "Beschikbaar zodra de site klaar en goedgekeurd is."
             : !lead.contact_email
               ? "Deze lead heeft geen contact e-mailadres."
               : undefined
@@ -307,6 +326,14 @@ export function DemoPreview({
 
       {sendDialogOpen ? (
         <SendDialog lead={lead} onClose={() => setSendDialogOpen(false)} onSent={onChanged} />
+      ) : null}
+
+      {previewOpen ? (
+        <SitePreviewVenster
+          version={siteVersion}
+          titel={lead.bedrijfsnaam}
+          onClose={() => setPreviewOpen(false)}
+        />
       ) : null}
     </section>
   );

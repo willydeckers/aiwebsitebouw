@@ -50,8 +50,8 @@ export function LeadsToolbar({
       <div className="flex items-center gap-2">
         <button
           onClick={() => setSourcingDialogOpen(true)}
-          title="Sourcing-configuratie (spec 3.1a)"
-          aria-label="Sourcing-configuratie"
+          title="Zoekprofiel voor automatisch leads zoeken"
+          aria-label="Zoekprofiel voor automatisch leads zoeken"
           className="rounded-xl border border-blue-200 p-2 text-slate-600 hover:bg-blue-50"
         >
           ⚙

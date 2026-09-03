@@ -32,18 +32,23 @@ export async function sendGmail({
   to,
   subject,
   html,
+  replyTo,
 }: {
   refreshToken: string;
   from: string;
   to: string;
   subject: string;
   html: string;
+  /** Waar een antwoord heen gaat als dat niet de afzender is — bijvoorbeeld
+   *  bij een doorgestuurde inzending, waar de bezoeker de juiste ontvanger is. */
+  replyTo?: string;
 }): Promise<void> {
   const accessToken = await getAccessToken(refreshToken);
 
   const message = [
     `To: ${to}`,
     `From: ${from}`,
+    ...(replyTo ? [`Reply-To: ${replyTo}`] : []),
     `Subject: ${subject}`,
     "Content-Type: text/html; charset=utf-8",
     "",

@@ -15,7 +15,7 @@ export function CostSummaryView({ summary }: { summary: CostSummary }) {
 
   return (
     <section className="mt-6 space-y-2 text-sm">
-      <h3 className="font-medium text-slate-700">Kosten (3.9 / 13)</h3>
+      <h3 className="font-medium text-slate-700">Kosten</h3>
       <p className={exceedsDemoBudget(summary) ? "font-medium text-red-600" : "text-slate-600"}>
         Totaal: €{summary.totalEur.toFixed(2)}
         {exceedsDemoBudget(summary) ? " — boven het richtbudget van €5 per demo" : ""}

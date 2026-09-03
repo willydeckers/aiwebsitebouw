@@ -341,6 +341,146 @@ const WIDGET_SCRIPT = `<script>
 export const WIDGET_RUNTIME = WIDGET_STIJL + "\n" + WIDGET_SCRIPT;
 
 // ─────────────────────────────────────────────────────────────────────────
+// Cookiemelding en bezoekersstatistieken
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Waar de keuze van de bezoeker blijft staan. Bewust localStorage en geen
+ *  cookie: een cookie zou zelf verstuurd worden bij elk verzoek, en dan zet je
+ *  een cookie om te onthouden dat iemand geen cookies wil. */
+export const CONSENT_SLEUTEL = "site-consent";
+
+/**
+ * Waarom dit géén `data-widget` is zoals alle blokken hierboven: die zet het
+ * model neer waar ze inhoudelijk passen, en een vergeten blok is dan hooguit
+ * een gemiste kans. Een toestemmingsmelding die op één pagina ontbreekt is
+ * geen gemiste kans maar een pagina die meet zonder te vragen. Ze hoort dus op
+ * élke pagina te staan zonder dat iemand eraan moet denken — net als de nav,
+ * de footer en de runtime zelf.
+ *
+ * Waarom ze enkel bestaat als er statistieken ingesteld zijn: een melding die
+ * toestemming vraagt voor niets is geen zorgvuldigheid maar ruis. Het
+ * contactformulier heeft een privacyverklaring nodig (die staat er nu altijd),
+ * geen cookiemelding — het zet niets op het toestel van de bezoeker. Zonder
+ * ANALYTICS_SCRIPT_URL valt er dus niets te vragen en blijft de balk weg.
+ *
+ * En waarom het script pas ná "Accepteren" wordt ingeladen in plaats van
+ * verborgen te staan: een <script src> dat al in de HTML staat, is al
+ * opgehaald voor de bezoeker iets kon kiezen. Dan is de keuze decoratie.
+ */
+export function bouwConsentRuntime(scriptUrl: string): string {
+  return `<style>
+  [data-consent-melding] {
+    position: fixed; inset-inline: 0; bottom: 0; z-index: 60; display: none;
+    padding: 1rem; font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  [data-consent-melding][data-zichtbaar] { display: block; }
+  [data-consent-melding] .consent-kaart {
+    margin: 0 auto; max-width: 44rem; display: flex; flex-wrap: wrap; gap: .75rem 1rem;
+    align-items: center; justify-content: space-between;
+    background: #ffffff; color: #0f172a; border: 1px solid #cbd5e1; border-radius: .9rem;
+    padding: .9rem 1.1rem; box-shadow: 0 10px 30px rgba(15, 23, 42, .18);
+  }
+  [data-consent-melding] p { margin: 0; font-size: .875rem; line-height: 1.5; flex: 1 1 18rem; }
+  [data-consent-melding] a { color: inherit; text-decoration: underline; }
+  [data-consent-melding] .consent-knoppen { display: flex; gap: .5rem; flex-wrap: wrap; }
+  [data-consent-melding] button {
+    font: inherit; font-size: .875rem; cursor: pointer; border-radius: .6rem;
+    padding: .45rem .95rem; border: 1px solid #0f172a; background: #0f172a; color: #ffffff;
+  }
+  [data-consent-melding] button[data-consent="nee"] { background: transparent; color: #0f172a; }
+  @media (prefers-color-scheme: dark) {
+    [data-consent-melding] .consent-kaart { background: #0f172a; color: #f8fafc; border-color: #334155; }
+    [data-consent-melding] button { background: #f8fafc; color: #0f172a; border-color: #f8fafc; }
+    [data-consent-melding] button[data-consent="nee"] { background: transparent; color: #f8fafc; }
+  }
+</style>
+<script>
+(function () {
+  "use strict";
+  var SLEUTEL = ${JSON.stringify(CONSENT_SLEUTEL)};
+  var SCRIPT_URL = ${JSON.stringify(scriptUrl)};
+
+  // Een browser in privémodus kan bij het enkel al uitlezen gooien. Dat mag
+  // nooit de pagina breken, en "onbekend" is dan het juiste antwoord: dan
+  // wordt er niets geladen tot iemand kiest.
+  function lees() {
+    try { return window.localStorage.getItem(SLEUTEL); } catch (err) { return null; }
+  }
+  function schrijf(waarde) {
+    try { window.localStorage.setItem(SLEUTEL, waarde); } catch (err) { /* keuze geldt dan enkel nu */ }
+  }
+
+  var geladen = false;
+  function laadStatistieken() {
+    if (geladen || !SCRIPT_URL) return;
+    geladen = true;
+    var s = document.createElement("script");
+    s.defer = true;
+    // Plausible koppelt een bezoek aan het domein waar het vandaan komt. Dat
+    // is precies de hostnaam waarop de bezoeker nu zit — of dat nu de
+    // demo-URL is of het eigen domein van de klant, zonder dat hier iets
+    // hergenereerd of bijgewerkt moet worden als dat domein later verandert.
+    s.setAttribute("data-domain", window.location.hostname);
+    s.src = SCRIPT_URL;
+    document.head.appendChild(s);
+  }
+
+  function bouwBalk() {
+    var balk = document.createElement("div");
+    balk.setAttribute("data-consent-melding", "");
+    balk.setAttribute("role", "dialog");
+    balk.setAttribute("aria-label", "Cookiemelding");
+    balk.innerHTML =
+      '<div class="consent-kaart">' +
+        '<p>We tellen graag hoeveel mensen deze site bezoeken. Dat gebeurt anoniem, zonder ' +
+        'je te volgen over andere websites. Meer hierover staat in ons ' +
+        '<a href="privacybeleid.html">privacybeleid</a>.</p>' +
+        '<div class="consent-knoppen">' +
+          '<button type="button" data-consent="ja">Accepteren</button>' +
+          '<button type="button" data-consent="nee">Weigeren</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(balk);
+
+    balk.addEventListener("click", function (e) {
+      var knop = e.target && e.target.closest ? e.target.closest("[data-consent]") : null;
+      if (!knop) return;
+      var keuze = knop.getAttribute("data-consent") === "ja" ? "toegestaan" : "geweigerd";
+      schrijf(keuze);
+      balk.removeAttribute("data-zichtbaar");
+      if (keuze === "toegestaan") laadStatistieken();
+    });
+
+    return balk;
+  }
+
+  function start() {
+    var keuze = lees();
+    if (keuze === "toegestaan") laadStatistieken();
+
+    var balk = null;
+    if (keuze !== "toegestaan" && keuze !== "geweigerd") {
+      balk = bouwBalk();
+      balk.setAttribute("data-zichtbaar", "");
+    }
+
+    // Op de privacypagina staat een knop om er later op terug te komen. Een
+    // keuze die je niet kan herzien is geen keuze.
+    Array.prototype.slice.call(document.querySelectorAll("[data-consent-herzien]")).forEach(function (knop) {
+      knop.addEventListener("click", function () {
+        if (!balk) balk = bouwBalk();
+        balk.setAttribute("data-zichtbaar", "");
+      });
+    });
+  }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+  else start();
+})();
+</script>`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Validation — the markup contract, enforced
 // ─────────────────────────────────────────────────────────────────────────
 

@@ -1,1 +1,5 @@
 supabase/.temp/
+
+# Uitvoer van worker/scripts/demo-widgets.ts — een demo-site om de widgets,
+# de cookiemelding en de privacypagina in een echte browser te bekijken.
+worker/widgetdemo/

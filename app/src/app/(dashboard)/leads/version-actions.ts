@@ -121,6 +121,24 @@ export async function activateVersion(leadId: string, versionId: string): Promis
   return null;
 }
 
+/**
+ * Haalt de site offline: de actieve versie wordt weer 'afgerond'.
+ *
+ * Er is bewust geen aparte "offline"-status. `track-and-serve` serveert wat op
+ * 'actief' staat en niets anders, dus geen actieve versie betekent al dat er
+ * niets bereikbaar is — een derde status erbij zou hetzelfde betekenen maar op
+ * twee plekken bijgehouden moeten worden. De versie zelf blijft staan, dus
+ * online zetten is één klik terug.
+ */
+export async function deactivateVersion(versionId: string): Promise<string | null> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("site_versions")
+    .update({ status: "afgerond" })
+    .eq("id", versionId);
+  return error ? `Offline halen mislukt: ${error.message}` : null;
+}
+
 // Spec 3.5: "Teruggaan naar een oudere versie maakt een nieuwe versie als
 // kopie" — non-destructive, so this always inserts a new row rather than
 // touching the source version or any existing concept row. Content was

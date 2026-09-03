@@ -43,10 +43,12 @@ deployment, live-credential verification, and a couple of deliberately-external 
   `domein-koppelen`. `track-and-serve` draait live ook nog in zijn oude vorm — zie de
   sectie van 2026-09-02 voor het deploy-commando en waarom dat bewust wacht.
 - **`.env.local`**: `NEXT_PUBLIC_SUPABASE_URL`/`NEXT_PUBLIC_SUPABASE_ANON_KEY`/
-  `ANTHROPIC_API_KEY` set locally, plus (2026-07-24) `NEXT_PUBLIC_DEMO_HOSTING_URL` and
-  `NEXT_PUBLIC_APP_URL` (pointing straight at the deployed `track-and-serve` function and
-  `localhost:3000` respectively — no custom domain yet). `DEMO_HOSTING_URL` set to match as
-  an Edge Function secret. `NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID` still empty.
+  `ANTHROPIC_API_KEY` set locally. **`NEXT_PUBLIC_DEMO_HOSTING_URL` staat er niét (meer) in** —
+  nagekeken op 2026-09-03; de regel hier beweerde sinds 24/07 van wel. De app leidt de
+  demo-link daarom zelf af uit `NEXT_PUBLIC_SUPABASE_URL` (zie `app/src/lib/demo-link.ts`), dus
+  dat is geen blokkade meer. `NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID` is nog steeds leeg.
+  Sinds 2026-09-02 hoeven de meeste sleutels sowieso niet meer in een bestand te staan: zie
+  het instellingenscherm verderop.
 - **Gmail OAuth**: Google Cloud OAuth client created (Web application type), client ID
   obtained; client secret + `GMAIL_TOKEN_ENCRYPTION_KEY` generation in progress.
 - **`ANTHROPIC_API_KEY` (Edge Function secret) was invalid** until 2026-07-24 (silently —
@@ -969,6 +971,476 @@ Volgorde is belangrijk — stap 5 is een beslismoment dat je geld kan besparen.
    supabase secrets set CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ZONE_ID=... CLOUDFLARE_CNAME_DOEL=... --project-ref <ref>
    ```
 7. Vul de echte aantallen wijzigingen per bundel in `app/src/lib/pakketten.ts` in.
+
+## 2026-09-02 — UX-audit van het dashboard + wat gegenereerde sites misten
+
+Twee losse sporen uit één doorlichting: het dashboard was niet zelfverklarend (Warre moest
+mondeling uitleggen hoe het werkt aan Garen), en elke gegenereerde site miste een paar
+structurele onderdelen.
+
+### Dashboard (was al gedaan in de werkboom bij aanvang van deze sessie)
+
+- **Spec-paragraafnummers stonden in gebruikersgerichte tekst** — 15 plekken, van
+  `title="Sourcing-configuratie (spec 3.1a)"` tot `"Versiegeschiedenis (3.5/3.8)"`. Allemaal
+  vervangen door gewone taal. Let op bij een volgende ronde: grep op `\(\d\.\d`, niet op het
+  woord "spec" — `"Open vragen (research, 3.2)"` bevatte dat woord niet. Interne
+  code-commentaren met spec-verwijzingen zijn bewust blijven staan; die leggen uit *waarom* de
+  code is zoals ze is en komen nergens in de UI.
+- **`lead-detail-panel.tsx` is geherstructureerd** van een platte stapel van 14 secties naar:
+  status → pipeline-knop → demo-preview → versiegeschiedenis bovenaan (waarvoor je het paneel
+  opent), dan notities/openstaande vragen, dan één blok **"Klant & account"** (convert, pakket
+  & domein, Shopify-winkel, site-interactie, kosten) en tot slot een dichtgeklapt
+  **"Instellingen"** (bedrijfsgegevens, AI-model). `KlantPanel` en `SiteInteractiePanel`
+  houden hun eigen uitklap: hun label draagt een telling of statuskleur die je juist zonder
+  uitklappen wil zien.
+- **Lege staten leggen nu uit wat je kan doen** (leadlijst: handmatig toevoegen vs. automatisch
+  zoeken, plus dat de worker moet draaien; klantenlijst: dat een klant uit een lead ontstaat).
+  De e2e-test klapt "Instellingen" nu open voor ze de modelkeuze leest.
+
+### Privacybeleid, cookiemelding en bezoekerscijfers (nieuw deze sessie)
+
+Elke gegenereerde site heeft een contactformulier dat persoonsgegevens opslaat, en had geen
+enkele privacyverklaring. Dat is nu gedicht, volgens dezelfde scheiding als de rest van de
+site-builder: **het model schrijft inhoud, de code garandeert wat er moet staan.**
+
+- **De privacypagina wordt door de code geschreven**, net als canonical/OG/JSON-LD — niet door
+  het model. Ze somt op wat de site feitelijk doet, en dat weet de code exact: er staat enkel
+  een alinea over formulieren als er écht een `data-widget="formulier"` op de site staat, enkel
+  over reviews als die er zijn, enkel over een toegangscode bij een beveiligde pagina, en enkel
+  over statistieken als die aan staan. Een model dat een bewaartermijn verzint of een formulier
+  vergeet, levert een tekst op die er juridisch uitziet en niet klopt.
+- **Ze staat bewust níet in `bron.paginas`.** Daardoor komt ze nooit in `bron.json` en dus ook
+  niet in de virtuele bestandenlijst die chat-edit aan het model toont: ze kan niet weggevraagd
+  worden. Dat is een sterkere garantie dan een uitzonderingslijst in `chat-edit-static`, en het
+  is minder code — die functie hoefde er niet voor aangepast te worden.
+- Gevolg voor `track-and-serve`: `site_versions.paginas` blijft de lijst van het model, dus de
+  privacypagina staat er niet in en zou 404'en. Eén uitzondering op de paginacontrole vangt dat
+  op, op één vaste in code vastgelegde bestandsnaam — geen patroon, niets uit het verzoek, dus
+  de "geen willekeurig pad naar Storage"-eigenschap blijft gelden. Ze staat om dezelfde reden
+  niet in de sitemap, en draagt `noindex`.
+- De link staat **binnen** `</footer>`, niet erachter geplakt. Dat verschil is onzichtbaar op
+  een screenshot (het staat onderaan) maar het is dan geen footerinhoud — precies het soort
+  fout dat de review-loop nooit kan zien. Er is een test die erop staat.
+- **De cookiemelding is deel van de geïnjecteerde runtime**, geen `data-widget` dat het model
+  plaatst. Een blok dat het model één keer vergeet, is bij een quiz een gemiste kans en hier
+  een pagina die meet zonder te vragen. Ze wordt vlak vóór `</body>` toegevoegd, ná alle
+  controles op de output van het model — dezelfde volgorde als `WIDGET_RUNTIME`.
+- **Ze verschijnt enkel als er iets te vragen valt**, d.w.z. als `ANALYTICS_SCRIPT_URL` gezet
+  is. Een balk die toestemming vraagt voor niets is ruis; het contactformulier heeft een
+  privacyverklaring nodig (die er nu altijd is), geen cookiemelding — het zet niets op het
+  toestel van de bezoeker.
+- **Het meetscript staat niet in de HTML.** Het wordt door JavaScript ingeladen ná
+  "Accepteren". Een `<script src>` dat al in de pagina staat, is opgehaald voor de bezoeker
+  iets kon kiezen, en dan is de keuze decoratie. `data-domain` wordt afgeleid uit
+  `location.hostname`, zodat dezelfde bestanden kloppen op de demo-URL, op een eigen domein en
+  in een geëxporteerde zip — zonder kolom per lead en zonder hergeneratie als het domein later
+  verandert.
+- `chat-edit-static` krijgt dezelfde instelling mee, anders haalt de eerste chat-bewerking de
+  melding van elke pagina af. **Zet `ANALYTICS_SCRIPT_URL` dus op beide plekken** (`worker/.env`
+  én `supabase secrets set`).
+
+**Geverifieerd in een echte browser** (`cd worker && UIT=widgetdemo ANALYTICS_SCRIPT_URL=... npx
+tsx scripts/demo-widgets.ts`, dan `preview_start` op de launch-config `sitedemo`): zonder keuze
+staat de balk er en is er nul plausible-script; "Weigeren" bewaart de keuze en laadt niets;
+"Accepteren" injecteert het script met `data-domain=localhost`; de knop "Cookiekeuze wijzigen"
+op de privacypagina opent de balk opnieuw. In een `data:`-context waar localStorage gooit, blijft
+de pagina werken en verschijnt de balk gewoon — dat pad is dus ook echt geraakt.
+
+**Wat een mens nog moet doen:** een Plausible-/Fathom-account kiezen en betalen, per klant hun
+domein daar registreren, en de juridische tekst laten nakijken. De tekst in
+`bouwPrivacyBody()` beschrijft correct wat deze sites doen, maar of dat volstaat voor een
+specifieke klant (denk aan een medische praktijk) is geen technische vraag.
+
+### Beeldbank uitgebreid van 6 naar 12 sectoren
+
+Bakker en slager waren als kernsectoren genoemd en hadden **nul** foto's — die sites kwamen dus
+altijd op kleurvlakken uit. Toegevoegd: bakker, slager, apotheek, dierenarts, fietsenmaker,
+schoonheidssalon (17 foto's erbij, 12 → 29).
+
+Elke URL is volgens het protocol bovenaan `image-bank.ts` één voor één in een browser geopend en
+bekeken. Eén kandidaat is daarbij afgewezen: "A white mountain bike is hanging"
+(`photo-1765376260870`) bleek een donker beeld met "verhuur" in de tekst — verkeerd voor een
+herstelzaak. Fietsenmaker heeft daarom 2 foto's en niet 3.
+
+**`vlees` is bewust géén trefwoord bij de slager.** Een frituur- of restaurantbriefing noemt dat
+woord ook, en die zou dan een koeltoonbank met rauw vlees op de site krijgen — exact de
+MIKI TEA-fout. Nagekeken: `"frituur met vlees en snacks"` levert nu geen slagersfoto's op.
+
+### De SEO-tags die na elke chat-bewerking verdwenen (gefixt)
+
+`chat-edit-static` roept `bouwSite()` opnieuw aan om de site na een bewerking samen te stellen,
+maar gaf het `seo`-blok niet mee. Gevolg: **canonical, Open Graph en de LocalBusiness-JSON-LD
+verdwenen van élke pagina zodra er één keer via de chat iets gewijzigd was.** Dateert van de
+SEO-toevoeging van 01/09.
+
+Waarom dit maanden onopgemerkt bleef, is het interessante deel: `bouwSite()` laat die tags
+zonder dat blok gewoon wég — geen exception, geen waarschuwing — en een screenshot van de
+pagina ziet er exact hetzelfde uit. De review-loop kan het per definitie niet zien. Dit is
+dezelfde familie als de privacylink die buiten `</footer>` belandde: fouten die enkel in de
+markup bestaan.
+
+- De opbouw staat nu in **`_shared/site-seo.ts`**, puur en apart, in plaats van als een paar
+  regels in de aanroeper. Dat is bewust: bij een stille fout is een test het enige dat je
+  beschermt, en een functie die `Deno.env` leest is niet te testen. De basis-URL komt er dus
+  als parameter in; de aanroeper leest `DEMO_HOSTING_URL`.
+- **7 nieuwe deno-tests**, waarvan twee expliciet het verschil vastleggen: mét het blok staan
+  canonical/og:url/JSON-LD op de pagina, zónder verdwijnen ze (en blijft enkel de gewone
+  description over). Die tweede test beschrijft letterlijk de bug, zodat hij niet opnieuw
+  wegglipt.
+- Drie van mijn eigen testaannames bleken fout en zijn rechtgezet tegen wat de code écht doet:
+  `JSON.stringify` zet geen spatie na de dubbele punt (`"@type":"Florist"`), `boekhouder van
+  ruimtevaartuigen` matcht wél de beeldbank (op `boekhoud`), en de logo-regel is `/^logo\./i` —
+  **`logo definitief.png` telt dus niet als logo**, enkel `logo.<ext>`. Dat laatste staat nu in
+  een test, want het is precies het soort detail dat je anders elke keer opnieuw uitzoekt.
+- De regels zijn een kopie van `bouwSeoGegevens()` in `worker/src/pipeline/generate-demo.ts`
+  (Node) — dezelfde Deno/Node-splitsing als bij de andere gedupliceerde bestanden. Houd ze gelijk.
+- **Bewust niet meegenomen:** `bestanden` wordt nog steeds níet aan `bouwSite()` doorgegeven in
+  chat-edit. Die optie zet de controle op dode downloadlinks aan, en die nu pas inschakelen zou
+  élke bewerking blokkeren op een site die al een link naar een verwijderd bestand bevat. Dat is
+  een aparte afweging dan deze bugfix; de bestandslijst wordt enkel gelezen om het logo te vinden.
+
+### Gestileerde 404 in plaats van platte tekst
+
+`track-and-serve` gaf `"Pagina niet gevonden."` als kale tekst — een doodlopend spoor op de site
+van een klant, net wanneer iemand een oude link uit een mail volgt.
+
+- De huisstijl staat nergens in de database (kleuren en lettertypes zitten enkel als markup in
+  de opgeslagen bestanden), dus haalt de 404 `bron.json` op en hergebruikt head/nav/footer van
+  die site. Dat is een extra Storage-lezing, maar enkel op het 404-pad.
+- Lukt dat niet (een oude één-bestand-versie heeft geen `bron.json`), dan volgt een sobere maar
+  verzorgde pagina — bewust niet terug naar platte tekst.
+- Een halve schil telt niet als schil: enkel een nav zonder footer ziet er afgebroken uit en
+  leest als een storing in plaats van als een verkeerd adres.
+- `sitemap.xml` en `robots.txt` houden hun platte-tekst-404: een crawler heeft niets aan een
+  HTML-pagina.
+- `_shared/site-404.ts` is puur en apart, met 7 deno-tests.
+
+### Geverifieerd
+
+- 69 worker-tests (was 63; 44 site-builder, 18 widgets, 7 shopify-mapping), `npm run typecheck`
+  schoon.
+- 25 deno-tests in `_shared` (14 nieuw: 7 voor de 404, 7 voor het seo-blok), `deno check`
+  schoon op `track-and-serve`, `chat-edit-static`, `site-builder`, `site-widgets`, `site-404`,
+  `site-seo`.
+- De vier gedupliceerde bestandsparen (`site-builder`, `site-widgets`, `image-bank`) zijn na
+  afloop met `diff` gecontroleerd: ze verschillen enkel in de header en de import-extensie.
+
+### Niet geverifieerd
+
+- ~~**De Edge Functions zijn niet gedeployed.**~~ Beide staan sinds 02/09 live; zie de
+  deploy-sectie verderop, inclusief de routeringsbug die daarbij bovenkwam.
+- **Geen echte generatie gedraaid.** De privacypagina en de cookiemelding zijn tegen de builder
+  en in een browser getest, niet tegen een levend model op een echte lead.
+- ~~**Er bestaat nog een aparte, oudere bug in `chat-edit-static`**~~ — gefixt, zie hieronder.
+- `SECTOR_STYLES` in `generate-demo.ts` kent de vier nieuwe sectoren niet (apotheek,
+  dierenarts, fietsenmaker, schoonheidssalon) en valt voor hen terug op de ambachtsstijl.
+  Bewust niet aangeraakt; het is één regel per sector als je andere kleuren wil.
+
+## 2026-09-02 — tweede UX-ronde uit echt gebruik (leadpaneel, chat, popup, instellingen)
+
+Gemeld tijdens gebruik, in één lijst. Wat het bleek te zijn:
+
+### De grote chatbox "werkte niet" — en dat was een echte crash
+
+`useLeadChat` maakte een Realtime-kanaal met de naam `chat-{leadId}`. supabase-js geeft voor
+dezelfde topic hetzelfde kanaalobject terug, dus zodra het strookje in het paneel én de grote
+chatbox tegelijk openstonden — allebei dezelfde lead — gooide de tweede `.on(...)` de fout
+`cannot add postgres_changes callbacks ... after subscribe()`. Die uitzondering nam de hele
+pagina mee: je kreeg een lege foutpagina met "Reload". **De kanaalnaam draagt nu een `useId()`
+per hook-instantie.** Dit had niets met "geen klant" te maken; het gebeurde altijd zodra beide
+weergaven openstonden.
+
+Gevonden door het in een echte browser aan te klikken, niet door te lezen — typecheck en lint
+zagen er niets van.
+
+### De popup is vervangen door een overlay
+
+"Bekijk" in de versiegeschiedenis opende een echt venster met `window.open`. Dat wordt
+geblokkeerd door de popup-blocker van een gewone browser én door de WebView van de verpakte
+Windows-app, en dan kreeg je enkel "kon geen popup-venster openen" — precies wanneer je de site
+aan een klant wil tonen. Nu: `leads/site-preview-venster.tsx`, een overlay in de app zelf, met
+paginakiezer en desktop/tablet/mobiel. Niet blokkeerbaar, en overal hetzelfde.
+Ook bereikbaar vanuit de demo-preview via **Volledig scherm**.
+
+De opzet van de oude popup (synchroon openen binnen het klik-event) was correct; het probleem
+was de aanpak zelf, niet de uitvoering.
+
+### Eén chatvenster dat als een chat werkt
+
+- **Bericht-bellen** zoals je verwacht: jij rechts, de AI links, systeemregels als rustige
+  notitie in het midden. Invoerveld is een `textarea` die meegroeit; Enter verstuurt,
+  Shift+Enter maakt een regel.
+- **Eén invoerveld, twee manieren.** Er stonden twee knoppen ("Verstuur" en "of: hele site
+  opnieuw genereren met deze instructie"), wat vooral de vraag opriep in welk vakje een
+  instructie hoort. Nu kies je vooraf **Gericht aanpassen** of **Hele site hergenereren**, met
+  de uitleg ernaast, en doet de knop wat er op staat. De losse hergenereer-knop onder het
+  strookje in het paneel is weg.
+- **Modelkeuze zit in de chat** (Opus/Sonnet/Fable), niet enkel weggestopt bij Instellingen.
+- **Bewaar als versie** en **Zet live** staan in de kop. Dat laatste is wat "wijzigingen
+  doorvoeren naar het domein" doet: `track-and-serve` serveert de `actief` versie, dus
+  activeren ís publiceren.
+- **Bestanden**: paperclip + slepen, `accept="image/*,.pdf,.txt,.md,.csv"` en `multiple`, en het
+  veld wordt na elke keuze leeggemaakt zodat hetzelfde bestand opnieuw gekozen kan worden.
+- **De chat werkt nu ook zonder site-versie.** Hij hing onder de demo-preview, en die verschijnt
+  pas als er een site is — bij een verse lead was er dus geen chat terwijl het paneel wel die
+  indruk gaf. Er staat nu een knop in het paneel zelf; zonder versie wordt je bericht de
+  briefing voor de eerste generatie, staat "Gericht aanpassen" uit, en zegt de kop dat ook.
+
+### Het profielmenu liep dood, en werd afgeknipt
+
+Klikken op je naam gaf een kaartje met je eigen naam erin en verder niets. Nu een echt menu met
+**Instellingen** en **Voorkeuren** (met een regel uitleg elk), Profiel bewerken en Uitloggen,
+dat sluit bij Escape en bij klikken erbuiten.
+
+Het werd bovendien **afgeknipt getoond** — dat is het stuk uit de screenshot. De oorzaak stond
+niet in de component maar in de layout: de balk bovenaan is `static`, en de inhoudskaart
+eronder maakt door `backdrop-blur` een eigen stapelcontext en tekende eroverheen. Je zag enkel
+het bovenste streepje. `relative z-30` op die `<header>` lost het op.
+
+### Minder tekst in het leadpaneel
+
+- Het regeltje "home — klik in de navigatie om te bladeren" naast Demo-preview is weg.
+- **Publieke link** en **Review-log** staan achter een knop in plaats van altijd uitgeklapt.
+- **Notities/briefing** (3835 tekens bij Tuinbouw Hendrix) en **Openstaande vragen** staan achter
+  een knop. Notities klapt vanzelf open zolang het veld leeg is: dan is het geen lap tekst maar
+  precies het veld dat je moet invullen.
+
+### Eén instellingenscherm voor alle sleutels
+
+Nieuw: `/instellingen`, plus de tabel `app_instellingen` (migratie `20260902010000`, **gepusht**).
+Alle sleutels die tot nu in `app/.env.local`, `worker/.env` en de Supabase-secrets verspreid
+stonden, staan er nu bij elkaar met uitleg, waar je ze vandaan haalt, en wat er niet werkt zolang
+ze leeg zijn. Geheimen worden afgeschermd getoond.
+
+- **De worker leest ze bij het opstarten** (`worker/src/shared/instellingen.ts`) en zet ze in
+  `process.env` vóór `controleerOmgeving()`. Wat in het scherm staat wint van wat in de omgeving
+  staat — je hebt het daar net ingevuld en je ziet het daar staan.
+- **SUPABASE_URL en SUPABASE_SERVICE_ROLE_KEY staan er bewust niet in.** De worker heeft die twee
+  nodig om deze tabel te kúnnen lezen; ze hier zetten zou betekenen dat hij ze moet ophalen uit
+  de plek die hij zonder die waarden niet bereikt. Het scherm zegt dat, en verwijst naar het
+  bestaande Worker-blok.
+- Een lege waarde verwijdert de rij: "niet ingesteld" en "ingesteld op niets" moeten voor de
+  worker hetzelfde betekenen.
+- Ontbreekt de tabel (migratie niet gedraaid), dan waarschuwt de worker en draait hij verder op
+  de omgeving — zoals vóór dit scherm bestond.
+
+### Geverifieerd in een draaiende browser
+
+Ingelogd via dezelfde magic-link-truc als `app/e2e/global-setup.ts`:
+- Instellingen: opslaan → uitlezen → wissen, echt tegen de live database (daarna weer leeg —
+  de testwaarde voor `DEMO_HOSTING_URL` is verwijderd, want dat subdomein bestaat nog niet en
+  zou de worker een fout adres geven).
+- Volledig scherm: alle 6 pagina's van Tuinbouw Hendrix, paginakiezer werkt.
+- Chat: opent zonder crash, modelkeuze Opus/Sonnet/Fable, bestandsknop met de juiste `accept`.
+- Chat zonder versie: getest op een tijdelijke lead (daarna verwijderd) — knop, kop en
+  uitgeschakelde "Gericht aanpassen" kloppen.
+- Profielmenu: opent volledig over de inhoud, en navigeert echt naar `/instellingen`.
+- **7 e2e-tests groen** (`npx playwright test`), app `tsc` + `eslint` schoon, worker typecheck +
+  69 tests, 25 deno-tests.
+
+**Let op bij het draaien van de e2e-suite**: `reuseExistingServer: true` betekent dat een dev
+server die je zelf al hebt draaien meegebruikt wordt. Draait daar tegelijk een browser in die
+tegen dezelfde leads werkt, dan falen tests willekeurig op timeouts. Stop je eigen server eerst.
+
+### Het klantenscherm gebruikt nu dezelfde chat als het leadpaneel
+
+Gemeld: "het hoofdwerkveld is de grote chatbox bij klanten, maar daar is veel minder terug te
+vinden dan bij het leadpaneel." Klopte, en het was erger dan alleen minder knoppen — het was een
+tweede, aparte implementatie:
+
+- De "chat" toonde rijen uit **`review_log`**, niet het echte gesprek uit `chat_berichten`. Wat
+  je bij een lead in de chat typte, zag je hier dus niet, en omgekeerd.
+- Geen bestanden, geen modelkeuze, geen "bewaar als versie", geen "zet live".
+- De preview was één `<iframe srcDoc>` met alleen de homepagina: geen paginakeuze, geen
+  mobiel/desktop, geen volledig scherm — en interne links deden niets.
+- Ernaast stond wéér een apart blok "Site herwerken met extra informatie", precies de dubbeling
+  die bij de leads al was opgeruimd.
+
+Nu is het aan beide kanten dezelfde `ChatVenster`, met drie nieuwe eigenschappen zodat één
+component beide plekken bedient:
+
+- **`ingebed`** — dezelfde chat als paneel in een pagina in plaats van als schermvullende laag.
+  In die smalle kolom staat het tekstveld op een eigen regel met de knoppen eronder; op volle
+  breedte blijft alles op één regel. De uitleg bij "gericht aanpassen / hergenereren" wordt daar
+  een tooltip in plaats van drie regels tekst.
+- **`readOnly` + `readOnlyReden`** — de bewerk-vergrendeling van het klantenscherm blijft
+  bestaan: is de ander aan het bewerken, dan kan je meekijken maar niet typen. Die vergrendeling
+  was het enige dat dit scherm béter deed dan het leadpaneel, en is behouden.
+- **`magHergenereren`** — uit voor Shopify-klanten: die sites worden door Shopify gerenderd, niet
+  door onze generator, dus "hele site hergenereren" bestaat daar niet.
+
+De backendkeuze blijft waar ze hoorde: `useLeadChat` accepteert nu een eigen `patch`-functie, en
+het klantenscherm geeft er één mee die via `startKlantChatEdit` op `klant_type` kiest tussen
+`chat-edit-static` en `chat-edit-shopify`. Eén chat-interface, één plek waar de backend gekozen
+wordt — en niet twee schermen die uit elkaar groeien.
+
+De preview links is nu de echte site-preview: paginakiezer, desktop/mobiel, volledig scherm, en
+interne links die werken (via hetzelfde postMessage-pad als bij de leads).
+
+**Geverifieerd in de browser** op klant Florian: site rendert, paginakiezer en viewports werken,
+en rechts staan modelkeuze, "Bewaar als versie", "Zet live", de manier-keuze en de paperclip,
+met de badge "Jij bewerkt nu".
+
+### De demo-link wordt nu getoond, en de platformbug van 25/07 is gemeten
+
+De app kende de publieke link niet: `NEXT_PUBLIC_DEMO_HOSTING_URL` staat niet in
+`app/.env.local` (ondanks wat hierboven ooit genoteerd is), en op drie plaatsen werd die
+variabele rechtstreeks gelezen. Gevolg: de knop "Publieke link" verscheen niet en de
+publiceer-dialoog meldde dat er geen basis-URL was — terwijl de functie-URL gewoon werkt.
+
+`app/src/lib/demo-link.ts` leidt hem nu af uit `NEXT_PUBLIC_SUPABASE_URL`:
+`{supabase-url}/functions/v1/track-and-serve/{leadId}/`. Staat de expliciete variabele wél
+gezet (straks, bij een eigen domein), dan wint die. Nagekeken in de app: bij Bloemen Gielen
+toont hij nu `https://uewbogxrdijartyuzfvw.supabase.co/functions/v1/track-and-serve/835c5c84-.../`,
+en die URL geeft 200 met de echte site.
+
+**De platformbug van 2026-07-25 is nu gemeten in plaats van vermoed.** Op `*.supabase.co`
+herschrijft de edge-gateway **élk** antwoord dat niet al `text/plain` is:
+
+| pad | wat wij sturen | wat er aankomt |
+|---|---|---|
+| `/{leadId}/` | `text/html; charset=utf-8` | `text/plain` |
+| `/{leadId}/index.html` | `text/html; charset=utf-8` | `text/plain` |
+| `/{leadId}/sitemap.xml` | `application/xml` | `text/plain` |
+| `/{leadId}/robots.txt` | `text/plain; charset=utf-8` | ongewijzigd |
+
+Er komen ook `Content-Security-Policy: default-src 'none'; sandbox` en
+`X-Content-Type-Options: nosniff` bij. Dat XML óók wordt herschreven is het nieuwe gegeven: het
+is geen HTML-specifieke regel maar "alles behalve platte tekst", dus **er bestaat geen
+header-truc die dit omzeilt**. Een browser toont daar de broncode, wat er ook geprobeerd wordt.
+
+Wat wél werkt op dat adres: alles wat de HTML programmatisch ophaalt — de preview in de app, de
+screenshots van de review-loop, de widget-endpoints. Enkel een mens met een browser niet.
+
+De publiceer-dialoog zegt dat nu ter plekke, met de verwijzing naar "Volledig scherm" om de site
+tóch te tonen. `linkRendertInBrowser()` bepaalt dat op de hostnaam, dus die waarschuwing
+verdwijnt vanzelf zodra de hosting op een eigen domein staat.
+
+**Voor wie dit oplost:** de enige uitweg blijft stap 2 uit de lijst hieronder — de Supabase
+custom-domain add-on op een vast subdomein, met `DEMO_HOSTING_URL` en
+`NEXT_PUBLIC_DEMO_HOSTING_URL` daarnaartoe. Of dat de herschrijving wegneemt is nog steeds
+onbewezen; het is wel de goedkoopste test en het blijft de eerste die je moet doen.
+
+### Publiceren, offline halen, contactmeldingen en bronnen (2026-09-02, latere ronde)
+
+Zes punten uit gebruik, met wat ze bleken te vragen:
+
+**"Zet live" vroeg nooit wáárheen.** De knop activeerde de versie meteen. Live op de demo-link of
+op het eigen domein van de klant is een wezenlijk verschil, en dat stond nergens op het moment
+dat je erop drukte. Er is nu een dialoog (`leads/publiceer-dialoog.tsx`) die eerst toont waar het
+naartoe gaat — demo-link, bureau-subdomein of eigen domein, opgezocht in `klanten` — en pas dan
+publiceert. Staat er nog geen domein, dan zegt ze dat en wijst ze naar Pakket & domein.
+
+**Offline halen kan.** `deactivateVersion()` zet de actieve versie terug op `afgerond`. Bewust
+géén nieuwe status: `track-and-serve` serveert alleen wat op `actief` staat, dus "geen actieve
+versie" ís al offline. Een derde status zou hetzelfde betekenen op twee plekken. De versie blijft
+staan, dus terugzetten is één klik.
+
+**Welke versie live staat, is nu zichtbaar** in de kop van de chat: groen "Dit is wat bezoekers
+zien" als je naar de actieve versie kijkt, en anders "Live staat versie N — je kijkt naar een
+andere versie". Daarvóór kon je een concept bewerken in de overtuiging dat het de live site was.
+
+**Inzendingen worden gemaild.** Dit was een echt gat: een contact- of reservatieformulier belandde
+alléén in `site_inzendingen`, en of iemand dat zag hing ervan af of hij toevallig in het dashboard
+keek. Voor een reservatie is dat geen systeem maar een archief. Nieuw:
+- kolom `leads.meldingen_email` (migratie `20260902020000`, gepusht),
+- `track-and-serve` mailt elke inzending naar dat adres via de bestaande Gmail-koppeling,
+- `sendGmail` kreeg `replyTo`, gezet op de bezoeker — anders moet de klant elk antwoord met de
+  hand naar het juiste adres overtypen,
+- het mailen gebeurt ná het bewaren en in een try/catch: een kapotte mailkoppeling mag een
+  bezoeker geen foutmelding geven voor iets wat aan onze kant misloopt. De rij in
+  `site_inzendingen` blijft het echte archief.
+- Leeg adres = alleen bewaren, precies het gedrag van hiervoor.
+
+**Eén scherm voor contactgegevens** (`leads/site-contact-panel.tsx`), in zowel het leadpaneel als
+het klantenscherm: het meldingsadres hierboven en het telefoonnummer dat op de site komt. Het
+label draagt een waarschuwing zolang er geen adres staat, want dan verdwijnen reservaties stil in
+de database.
+
+**"Bronnen in deze chat"** (`leads/bronnen-paneel.tsx`), naar het voorbeeld van Claude: een
+zijpaneel vanuit de chat met alle bestanden die aan deze lead hangen — naam, soort, grootte, wie
+het toevoegde, en de uitgelezen tekst uitklapbaar. Die lijst zat verstopt in een uitklapblok
+onderaan het leadpaneel, ver van de chat waarin je het bestand net had gesleept, terwijl "heeft
+hij het logo nu wél?" precies de vraag is die je tijdens het werken hebt.
+
+**De begeleidende tekst in de chat is ingekort** van drie alinea's naar één regel.
+
+### Geverifieerd
+
+In de browser op klant Florian: publiceer-dialoog (toont correct "Geen publieke basis-URL
+ingesteld", want `DEMO_HOSTING_URL` staat er nog niet), bronnenpaneel met het echte bestand van
+die lead, contactscherm met beide velden, de groene live-indicatie en de kortere tekst.
+
+Live tegen de gedeployde functie: de site van Bloemen Gielen geeft nog steeds 200, en een
+inzending zonder ingesteld meldingsadres wordt gewoon aanvaard (`{"ok":true}`) — geen regressie.
+De testinzending is daarna weer verwijderd.
+
+**Niet getest**: het daadwerkelijk versturen van zo'n mail. Dat vraagt een lead met een ingevuld
+`meldingen_email` én een werkende Gmail-koppeling; die koppeling bestaat nog niet
+(`NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID` is leeg). De code volgt hetzelfde pad als `notifyOpened`,
+dat al langer bestaat, maar dat pad is zelf ook nooit live gedraaid.
+
+Ook niet aangeklikt: "Offline halen" — dat zou de site van een echte klant offline hebben gehaald.
+
+### De e2e-suite wordt flaky als je hem kort na elkaar draait
+
+Belangrijk om te weten voor wie hem draait, want het kost anders een halfuur zoeken naar een bug
+die er niet is.
+
+Losse tests en paren slagen altijd in enkele seconden. Draai je de volledige suite meerdere keren
+kort na elkaar, dan beginnen de **laatste** tests te falen op "row not found" na 30 seconden — en
+wélke tests dat zijn, verschilt per run. De suite maakt per test een lead aan via de service-role
+en logt bij elke run opnieuw in met een verse magic link; na een stuk of vijf runs binnen het
+halfuur haalt een pas ingevoegde lead de lijst niet meer.
+
+Wat het niet is: de UI (elke falende test slaagt los), en niet de opgeruimde testdata
+(gecontroleerd: nul achtergebleven `E2E-test `-leads, 8 leads in totaal).
+
+Praktisch: draai de suite één keer, en stop je eigen dev-server eerst — `reuseExistingServer:
+true` betekent dat een server waar jij zelf in zit meegebruikt wordt, en een openstaand
+dashboard houdt via Realtime verbindingen open waardoor `global-setup`'s
+`waitForLoadState("networkidle")` afloopt in een timeout.
+
+### Deploy van 2026-09-02, en de routeringsbug die daarbij bovenkwam
+
+`track-and-serve` en `chat-edit-static` staan **live** (`supabase functions deploy` vanuit de
+repo-root). Twee dingen om te onthouden:
+
+**Draai het commando vanuit de repo-root, niet vanuit `app/`.** Er is nergens een
+`supabase/config.toml`, dus de CLI kan de projectmap niet zelf vinden. Vanuit `app/` maakt hij
+een lege `app/supabase/.temp/` aan en zoekt hij de functie op `app/supabase/functions/...` —
+wat een 400 geeft met "Entrypoint path does not exist". Vanuit de root klopt alles.
+
+**De domeinroutering was stuk, en dat bleek pas live.** De deploy activeerde de
+domein-ondersteuning van eerder op 02/09, die nooit gedeployed was. `bepaalRouteVorm` besliste
+enkel op de **Host-header** of een request via de functie-URL of via een klantdomein binnenkwam.
+Een Edge Function ziet die header niet noodzakelijk als de hostnaam waarop de bezoeker de site
+opvroeg — gevolg: élke demo-link viel door naar de klantdomein-opzoeking, vond niets, en gaf 404.
+Alle demo-links waren daardoor enkele minuten stuk.
+
+Opgelost door eerst naar het pad te kijken: **een lead-id (UUID) vooraan in het pad betekent
+functie-URL**, ongeacht wat de Host-header zegt. Pas als dat er niet staat, wordt de host
+gebruikt om een klantdomein op te zoeken. Twee tests in `site-domein.test.ts` leggen precies dit
+vast (13 tests daar nu, 27 in `_shared` in totaal).
+
+Waarom de bestaande tests dit niet vingen: die gaven zelf een host mee die ze verzonnen hadden
+(`abcdef.supabase.co`), en die klopte altijd. De aanname zat in de test én in de code.
+
+**Live nagekeken na de fix**: Bloemen Gielen en Bloemenboetiek De Roos geven weer 200 met hun
+echte `<title>`, en een onbestaande pagina geeft de nieuwe 404 mét de bedrijfsnaam erin
+("Deze pagina bestaat niet (meer) — Bloemen Gielen"). Antwerp Fried Chicken geeft terecht
+"Shopify-klanten worden rechtstreeks door Shopify bediend", en Tuinbouw Hendrix staat op
+`concept` — dus "Deze site staat nog niet online" klopt daar.
+
+**De privacypagina verschijnt pas bij de volgende generatie.** Bestaande versies zijn gebouwd
+vóór die toevoeging; `privacybeleid.html` staat dus nog niet in hun map en geeft (terecht) 404.
+
+### Niet gedaan / nog open
+
+- **Bestanden uploaden is niet met een echt bestand getest** — de knop, het `accept`-filter en de
+  sleepzone zijn nagekeken, maar een bestand kiezen kan de testbrowser niet.
+- **Geen echte chat-bewerking gedraaid**: dat kost een modelaanroep en raakt een levende site.
+- ~~De Edge Functions van vandaag staan nog niet live~~ — gedeployed, zie hierboven.
 
 ## Known gaps (deliberate, not oversights)
 

@@ -15,8 +15,31 @@ export function LeadsTable({ leads }: { leads: Lead[] }) {
   }
 
   if (leads.length === 0) {
+    // Deze lijst is al gefilterd door de pagina erboven. Zonder dat onderscheid
+    // zou een filter zonder treffers eruitzien alsof er nog nooit een lead is
+    // geweest, en zou de uitleg hieronder op het verkeerde moment komen.
+    if (searchParams.get("status")) {
+      return (
+        <p className="mt-6 text-sm text-slate-500">
+          Geen leads met deze status. Kies Alle statussen in de balk hierboven om alles te zien.
+        </p>
+      );
+    }
+
     return (
-      <p className="mt-6 text-sm text-slate-500">Nog geen leads.</p>
+      <div className="mt-6 space-y-2 text-sm text-slate-500">
+        <p className="font-medium text-slate-700">Nog geen leads.</p>
+        <p>
+          Een lead komt hier op twee manieren binnen: met de knop Lead toevoegen hierboven
+          typ je er zelf een in, en met het tandwiel ernaast laat je automatisch bedrijven
+          opzoeken die bij je zoekprofiel passen.
+        </p>
+        <p>
+          Het opzoeken en het bouwen van de site gebeuren daarna op de achtergrond in de
+          worker. Draait die niet, dan blijft alles in de wachtrij staan en verschijnt er
+          bovenaan een waarschuwing met de knop om hem te starten.
+        </p>
+      </div>
     );
   }
 

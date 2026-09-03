@@ -7,7 +7,13 @@ import {
   createAnthropicClient,
   resolveModel,
 } from "../_shared/anthropic.ts";
-import { SiteBuildError, bouwSite, parseSiteBron, type SiteBron } from "../_shared/site-builder.ts";
+import {
+  SiteBuildError,
+  bouwSite,
+  parseSiteBron,
+  type SiteBron,
+} from "../_shared/site-builder.ts";
+import { bouwSeoGegevens } from "../_shared/site-seo.ts";
 
 const PROMPT_VERSIE = "chat-edit-static-v9.1-multipage";
 const VIRTUAL_DIR = "/demo";
@@ -174,14 +180,27 @@ Deno.serve(async (req) => {
       throw new Error("Geen site-versie om te bewerken.");
     }
 
-    // Needed to re-render the per-page <title> when re-assembling below.
+    // Needed to re-render the per-page <title> when re-assembling below, en —
+    // sinds de SEO-toevoeging van 01/09 — ook om canonical/OG/JSON-LD opnieuw
+    // op te bouwen. Zie bouwSeoVoorEdit hieronder waarom dat hier moet.
     const { data: lead } = await supabase
       .from("leads")
-      .select("bedrijfsnaam, ai_model")
+      .select("bedrijfsnaam, ai_model, sector, adres, telefoon, notities, research_samenvatting")
       .eq("id", leadId)
       .maybeSingle();
 
     const model = resolveModel(lead?.ai_model, { maxTier: MAX_TIER_ONDERSTEUNEND });
+
+    // Enkel de namen: die zijn nodig om het logo te herkennen voor og:image.
+    // Bewust NIET doorgegeven als `bestanden` aan bouwSite() — die optie zet de
+    // controle op dode downloadlinks aan, en dat hier nu pas aanzetten zou elke
+    // bewerking blokkeren op een site die al een link naar een verwijderd
+    // bestand bevat. Dat is een aparte beslissing dan deze bugfix.
+    const { data: bestandRijen } = await supabase
+      .from("site_bestanden")
+      .select("bestandsnaam")
+      .eq("lead_id", leadId);
+    const geuploadeBestanden = (bestandRijen ?? []).map((r) => r.bestandsnaam as string);
 
     const isMultipage = Array.isArray(siteVersion.paginas) && siteVersion.paginas.length > 0;
     const map = siteVersion.content_referentie.replace(/\/index\.html$/, "");
@@ -325,7 +344,20 @@ Deno.serve(async (req) => {
       let gebouwd: { bestand: string; html: string }[];
       try {
         nieuweBron = bestandenNaarBron(bestanden);
-        gebouwd = bouwSite(nieuweBron, lead?.bedrijfsnaam ?? "");
+        // Dezelfde analytics-instelling als bij het genereren meegeven, anders
+        // haalt de eerste de beste chat-bewerking de cookiemelding en het
+        // meetscript van elke pagina af — zonder dat iemand daarom vroeg.
+        // Hetzelfde geldt voor het seo-blok; zie _shared/site-seo.ts.
+        const analyticsScript = (Deno.env.get("ANALYTICS_SCRIPT_URL") ?? "").trim();
+        gebouwd = bouwSite(nieuweBron, lead?.bedrijfsnaam ?? "", {
+          seo: bouwSeoGegevens({
+            leadId,
+            hostingBase: Deno.env.get("DEMO_HOSTING_URL") ?? "",
+            lead,
+            bestanden: geuploadeBestanden,
+          }),
+          analytics: analyticsScript ? { scriptUrl: analyticsScript } : undefined,
+        });
       } catch (err) {
         const reden = err instanceof SiteBuildError || err instanceof Error ? err.message : String(err);
         await supabase.from("review_log").insert({

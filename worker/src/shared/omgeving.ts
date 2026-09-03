@@ -60,10 +60,13 @@ export function controleerOmgeving(): { onbruikbareTypes: Set<string> } {
   // the desktop app there is no worker/.env at all -- the values come from the
   // settings screen -- and pointing someone at a file that does not exist on
   // their machine is worse than saying nothing.
+  // Sinds er één instellingenscherm is, is dát het antwoord op "waar zet ik
+  // dit dan?" — behalve voor de twee waarden die nodig zijn om dat scherm
+  // überhaupt te kunnen uitlezen (zie instellingen.ts).
   const waar =
     process.env.WORKER_STOP_BIJ_GESLOTEN_INVOER === "1"
-      ? "bij Voorkeuren → Worker in de app"
-      : "in worker/.env";
+      ? "bij Instellingen in de app"
+      : "bij Instellingen in de app, of in worker/.env";
 
   const ontbrekendKern = KERN.filter((v) => !process.env[v.naam]);
   if (ontbrekendKern.length) {

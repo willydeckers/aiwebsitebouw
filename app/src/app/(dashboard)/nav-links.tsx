@@ -9,6 +9,7 @@ const LINKS = [
   { href: "/verstuurd", label: "Verstuurd" },
   { href: "/klanten", label: "Klanten" },
   { href: "/voorkeuren", label: "Voorkeuren" },
+  { href: "/instellingen", label: "Instellingen" },
 ];
 
 export function NavLinks() {

@@ -8,7 +8,8 @@ import {
   toegangCookieHeader,
   toegangFormulier,
 } from "../_shared/site-toegang.ts";
-import { bouwRobotsTxt, bouwSitemap } from "../_shared/site-builder.ts";
+import { PRIVACY_BESTAND, bouwRobotsTxt, bouwSitemap } from "../_shared/site-builder.ts";
+import { bouwNietGevondenPagina } from "../_shared/site-404.ts";
 import { bepaalRouteVorm } from "../_shared/site-domein.ts";
 
 // Spec section 2: the public hosting layer. No auth, no CORS preflight
@@ -119,7 +120,11 @@ async function handleFormulier(
   req: Request,
   leadId: string,
 ): Promise<Response> {
-  const { data: lead } = await supabase.from("leads").select("id").eq("id", leadId).maybeSingle();
+  const { data: lead } = await supabase
+    .from("leads")
+    .select("id, bedrijfsnaam, meldingen_email")
+    .eq("id", leadId)
+    .maybeSingle();
   if (!lead) return new Response(JSON.stringify({ error: "Onbekende site." }), { status: 404, headers: JSON_HEADERS });
 
   let body: Record<string, unknown>;
@@ -191,7 +196,88 @@ async function handleFormulier(
     });
   }
 
+  // Pas mailen als het bewaard is, en een mislukte mail mag de inzending niet
+  // ongedaan maken: de bezoeker heeft zijn deel gedaan en hoort geen fout te
+  // zien omdat ónze mailkoppeling stuk is. De rij in site_inzendingen blijft
+  // hoe dan ook het echte archief.
+  if (lead.meldingen_email) {
+    try {
+      await mailInzending(supabase, {
+        naar: lead.meldingen_email,
+        bedrijfsnaam: lead.bedrijfsnaam ?? "",
+        soort,
+        naam: tekst("naam"),
+        email: tekst("email"),
+        bericht,
+        extra,
+      });
+    } catch (err) {
+      console.error("Kon inzending niet mailen:", err instanceof Error ? err.message : err);
+    }
+  }
+
   return new Response(JSON.stringify({ ok: true }), { headers: JSON_HEADERS });
+}
+
+/**
+ * Stuurt een binnengekomen inzending door naar het adres dat bij de lead staat.
+ *
+ * Waarom dit bestaat: een reservatie of contactvraag is tijdgebonden. Ze enkel
+ * in de database zetten en wachten tot iemand in het dashboard kijkt, maakt er
+ * een archief van in plaats van een aanvraag. Het antwoordadres van de mail is
+ * de bezoeker zelf, zodat "Beantwoorden" gewoon werkt.
+ */
+async function mailInzending(
+  supabase: ReturnType<typeof createServiceClient>,
+  gegevens: {
+    naar: string;
+    bedrijfsnaam: string;
+    soort: string;
+    naam: string | null;
+    email: string | null;
+    bericht: string | null;
+    extra: Record<string, string>;
+  },
+) {
+  const { data: koppeling } = await supabase
+    .from("gmail_koppeling")
+    .select("*")
+    .eq("status", "actief")
+    .not("refresh_token", "is", null)
+    .limit(1)
+    .maybeSingle();
+  if (!koppeling) return;
+
+  const { data: users } = await supabase.auth.admin.listUsers();
+  const sender = (users?.users ?? []).find((u) => gebruikerFromEmail(u.email) === koppeling.gebruiker);
+  if (!sender?.email) return;
+
+  const refreshToken = await decryptToken(new Uint8Array(koppeling.refresh_token));
+  const ontsnap = (waarde: string) =>
+    waarde.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  const regels = [
+    gegevens.naam ? `<p><strong>Naam:</strong> ${ontsnap(gegevens.naam)}</p>` : "",
+    gegevens.email ? `<p><strong>E-mail:</strong> ${ontsnap(gegevens.email)}</p>` : "",
+    ...Object.entries(gegevens.extra).map(
+      ([sleutel, waarde]) => `<p><strong>${ontsnap(sleutel)}:</strong> ${ontsnap(waarde)}</p>`,
+    ),
+    gegevens.bericht ? `<p style="white-space:pre-wrap">${ontsnap(gegevens.bericht)}</p>` : "",
+  ].filter(Boolean);
+
+  const soortLabel =
+    gegevens.soort === "offerte" ? "Offerteaanvraag" : gegevens.soort === "review" ? "Review" : "Bericht";
+
+  await sendGmail({
+    refreshToken,
+    from: sender.email,
+    to: gegevens.naar,
+    // Antwoorden gaat naar de bezoeker, niet naar ons: anders moet de klant
+    // elk antwoord met de hand overtypen naar het juiste adres.
+    replyTo: gegevens.email ?? undefined,
+    subject: `${soortLabel} via je website${gegevens.bedrijfsnaam ? ` — ${gegevens.bedrijfsnaam}` : ""}`,
+    html: `<p>Er is een nieuw bericht binnengekomen via je website.</p>${regels.join("")}`,
+  });
 }
 
 /** Approved reviews only — a submitted review is never publicly visible until
@@ -227,6 +313,7 @@ async function handleBestand(
   supabase: ReturnType<typeof createServiceClient>,
   leadId: string,
   naam: string,
+  basisPad: string,
 ): Promise<Response> {
   const { data: rij } = await supabase
     .from("site_bestanden")
@@ -235,7 +322,19 @@ async function handleBestand(
     .eq("bestandsnaam", decodeURIComponent(naam))
     .maybeSingle();
 
-  if (!rij) return new Response("Bestand niet gevonden.", { status: 404 });
+  if (!rij) {
+    // Zonder huisstijl: een bestandsverzoek heeft geen versiecontext, en er een
+    // Storage-lezing bij doen om een download-404 op te smukken is de moeite
+    // niet waard. De sobere variant is nog altijd een pagina met een weg terug.
+    return new Response(
+      bouwNietGevondenPagina({
+        homeUrl: basisPad,
+        titel: "Dit bestand bestaat niet (meer)",
+        boodschap: "De link klopt niet, of het bestand is verwijderd.",
+      }),
+      { status: 404, headers: { "Content-Type": "text/html; charset=utf-8" } },
+    );
+  }
 
   const { data: blob, error } = await supabase.storage.from("demos").download(rij.opslag_pad);
   if (error || !blob) return new Response("Kon bestand niet ophalen.", { status: 500 });
@@ -361,6 +460,45 @@ function herschrijfSeoUrls(html: string, van: string, naar: string): string {
   return html.split(van).join(naar);
 }
 
+/**
+ * Een 404 in de huisstijl van de site zelf. De kleuren en lettertypes staan
+ * nergens in de database — enkel als markup in bron.json — dus die wordt hier
+ * opgehaald. Dat is een extra Storage-lezing, maar enkel op het 404-pad: geen
+ * enkele bezoeker die wél een bestaande pagina opvraagt betaalt ervoor.
+ *
+ * Mislukt het ophalen (een oude versie van vóór het meerpagina-systeem heeft
+ * geen bron.json), dan valt bouwNietGevondenPagina terug op eigen opmaak.
+ */
+async function nietGevonden(
+  supabase: ReturnType<typeof createServiceClient>,
+  opties: { contentReferentie?: string | null; bedrijfsnaam?: string | null; homeUrl: string },
+): Promise<Response> {
+  let bron: { head?: string; nav?: string; footer?: string } | null = null;
+
+  if (opties.contentReferentie) {
+    const map = opties.contentReferentie.replace(/\/[^/]*$/, "");
+    const { data } = await supabase.storage.from("demos").download(`${map}/bron.json`);
+    if (data) {
+      try {
+        bron = JSON.parse(await data.text());
+      } catch {
+        // Onleesbare bron.json mag geen 500 maken van een 404.
+      }
+    }
+  }
+
+  return new Response(
+    bouwNietGevondenPagina({
+      homeUrl: opties.homeUrl,
+      bedrijfsnaam: opties.bedrijfsnaam,
+      head: bron?.head,
+      nav: bron?.nav,
+      footer: bron?.footer,
+    }),
+    { status: 404, headers: { "Content-Type": "text/html; charset=utf-8" } },
+  );
+}
+
 async function handleServe(
   supabase: ReturnType<typeof createServiceClient>,
   req: Request,
@@ -376,7 +514,16 @@ async function handleServe(
     .eq("id", leadId)
     .maybeSingle();
 
-  if (!lead) return new Response("Lead niet gevonden.", { status: 404 });
+  if (!lead) {
+    return new Response(
+      bouwNietGevondenPagina({
+        homeUrl: basisPad,
+        titel: "Deze site bestaat niet",
+        boodschap: "Het adres klopt niet. Controleer de link die je gevolgd hebt.",
+      }),
+      { status: 404, headers: { "Content-Type": "text/html; charset=utf-8" } },
+    );
+  }
   if (lead.klant_type === "shopify") {
     // Spec section 2: "Voor shopify-klanten is deze laag niet nodig" —
     // Shopify serves its own store domain directly, this route should
@@ -392,7 +539,14 @@ async function handleServe(
     .maybeSingle();
 
   if (!siteVersion?.content_referentie) {
-    return new Response("Nog geen actieve versie beschikbaar voor deze lead.", { status: 404 });
+    return new Response(
+      bouwNietGevondenPagina({
+        homeUrl: basisPad,
+        titel: "Deze site staat nog niet online",
+        boodschap: "Er is nog geen gepubliceerde versie van deze website.",
+      }),
+      { status: 404, headers: { "Content-Type": "text/html; charset=utf-8" } },
+    );
   }
 
   const paginas = (siteVersion.paginas ?? []) as Pagina[];
@@ -404,8 +558,22 @@ async function handleServe(
     // path lands in a Storage download call from a public, unauthenticated
     // route, and a stale link to a page a re-generation dropped 404s
     // instead of leaking whatever else happens to sit in the bucket.
-    if (!paginas.some((p) => p.bestand === bestand)) {
-      return new Response("Pagina niet gevonden.", { status: 404 });
+    // De privacypagina is de ene uitzondering: die wordt door de code aan de
+    // site toegevoegd en staat daarom niet in `paginas` (dat is de lijst die
+    // het model schreef). Het blijft één vaste, in code vastgelegde naam — geen
+    // patroon en niets uit het verzoek — dus de eigenschap hierboven blijft
+    // gelden: er belandt nog altijd geen willekeurig pad in een Storage-download.
+    if (bestand !== PRIVACY_BESTAND && !paginas.some((p) => p.bestand === bestand)) {
+      const { data: bedrijf } = await supabase
+        .from("leads")
+        .select("bedrijfsnaam")
+        .eq("id", leadId)
+        .maybeSingle();
+      return await nietGevonden(supabase, {
+        contentReferentie: siteVersion.content_referentie,
+        bedrijfsnaam: bedrijf?.bedrijfsnaam,
+        homeUrl: basisPad,
+      });
     }
     pad = `${siteVersion.content_referentie.replace(/\/index\.html$/, "")}/${bestand}`;
   }
@@ -522,7 +690,16 @@ Deno.serve(async (req) => {
     }
 
     const route = await bepaalRoute(supabase, req, url, segments);
-    if (!route) return new Response("Not found", { status: 404 });
+    if (!route) {
+      return new Response(
+      bouwNietGevondenPagina({
+        homeUrl: "/",
+        titel: "Deze pagina bestaat niet",
+        boodschap: "Het adres klopt niet, of deze website is niet (meer) gekoppeld.",
+      }),
+      { status: 404, headers: { "Content-Type": "text/html; charset=utf-8" } },
+    );
+    }
 
     const { leadId, segmenten, basisPad } = route;
 
@@ -536,7 +713,7 @@ Deno.serve(async (req) => {
       return await handleToegang(supabase, req, leadId, basisPad);
     }
     if (segmenten[0] === "bestanden" && segmenten[1]) {
-      return await handleBestand(supabase, leadId, segmenten[1]);
+      return await handleBestand(supabase, leadId, segmenten[1], route.basisPad);
     }
     if (segmenten[0] === "sitemap.xml") {
       return await handleSeoBestand(supabase, leadId, "sitemap", route.basisUrl);

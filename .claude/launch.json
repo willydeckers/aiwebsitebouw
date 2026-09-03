@@ -25,6 +25,19 @@
       "cwd": "app",
       "port": 3100,
       "autoPort": false
+    },
+    {
+      "name": "sitedemo",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "serve",
+        "widgetdemo",
+        "-p",
+        "3200"
+      ],
+      "cwd": "worker",
+      "port": 3200,
+      "autoPort": false
     }
   ]
 }

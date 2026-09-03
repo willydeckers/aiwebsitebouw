@@ -67,7 +67,8 @@ export default function KlantenPage() {
         <p className="mt-6 text-sm text-slate-500">Laden...</p>
       ) : klanten.length === 0 ? (
         <p className="mt-6 text-sm text-slate-500">
-          Nog geen klanten — markeer een lead als klant via het detailpaneel (spec sectie 3.7).
+          Nog geen klanten. Een klant ontstaat uit een lead: open een lead in het
+          leadsoverzicht en markeer die daar als klant zodra de afspraak rond is.
         </p>
       ) : (
         <KlantenList klanten={klanten} onSelect={openKlant} />

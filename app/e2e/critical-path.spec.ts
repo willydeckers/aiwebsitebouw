@@ -222,6 +222,10 @@ test("de modelkeuze van een lead wordt bewaard", async ({ page }) => {
   await page.getByRole("row", { name: new RegExp(naam) }).click();
   await expect(page.getByRole("heading", { name: naam })).toBeVisible();
 
+  // De modelkeuze staat bij de instellingen die je één keer zet, niet bij de
+  // dingen waarvoor je het paneel dagelijks opent — dus eerst uitklappen.
+  await page.getByRole("button", { name: "Instellingen tonen" }).click();
+
   const keuze = page.getByLabel("AI-model voor deze lead");
   await expect(keuze).toHaveValue("claude-opus-4-8");
 

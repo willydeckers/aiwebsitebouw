@@ -20,6 +20,7 @@ import { zoekBankAfbeelding } from "./image-bank.js";
 import {
   WIDGET_PROMPT,
   WIDGET_RUNTIME,
+  bouwConsentRuntime,
   controleerGeenEigenScripts,
   controleerWidgets,
   vulEndpointsIn,
@@ -472,6 +473,17 @@ export type BouwOpties = {
    * dan worden die tags gewoon weggelaten — nooit een half ingevulde URL.
    */
   seo?: SeoGegevens;
+  /**
+   * Bezoekersstatistieken. Ontbreekt dit blok, dan komt er geen meetscript op
+   * de site en dus ook geen cookiemelding — er valt dan niets te vragen. Zie
+   * bouwConsentRuntime in site-widgets.ts voor die afweging.
+   */
+  analytics?: AnalyticsGegevens;
+};
+
+export type AnalyticsGegevens = {
+  /** Volledige URL van het meetscript, bv. "https://plausible.io/js/script.js". */
+  scriptUrl: string;
 };
 
 export type SeoGegevens = {
@@ -666,12 +678,163 @@ export function optimaliseerAfbeeldingen(html: string): string {
   });
 }
 
+/**
+ * De privacypagina staat op elke gegenereerde site, en wordt hier door de code
+ * geschreven in plaats van door het model.
+ *
+ * Waarom niet door het model: dit is geen inhoudskeuze. Het is een opsomming
+ * van wat de site feitelijk doet — welke formulieren erop staan, of er gemeten
+ * wordt, of er een toegangscode is — en dat weet de code exact en het model
+ * enkel bij benadering. Een model dat een bewaartermijn verzint of een
+ * formulier vergeet te vermelden, levert een tekst op die er juridisch uitziet
+ * en feitelijk niet klopt. Dat is erger dan geen tekst.
+ *
+ * Om dezelfde reden staat de pagina bewust niet in `bron.paginas`: daardoor
+ * komt ze nooit in bron.json, en dus ook niet in de virtuele bestandenlijst die
+ * chat-edit aan het model toont. Ze kan niet per ongeluk weggevraagd worden.
+ *
+ * LET OP voor wie dit onderhoudt: dit is een feitelijke basistekst, geen
+ * juridisch advies. Ze beschrijft correct wat deze sites doen; of dat volstaat
+ * voor een specifieke klant (bv. een medische praktijk) hoort een mens na te
+ * kijken.
+ */
+export const PRIVACY_BESTAND = "privacybeleid.html";
+
+export type PrivacyGegevens = {
+  bedrijfsnaam: string;
+  adres?: string | null;
+  telefoon?: string | null;
+  /** Staat er ergens een contactformulier op de site? */
+  heeftFormulier: boolean;
+  /** Kunnen bezoekers zelf een review achterlaten? */
+  heeftReviews: boolean;
+  /** Zit er een pagina achter een toegangscode? */
+  heeftBeveiligdePagina: boolean;
+  /** Worden er bezoekcijfers gemeten (na toestemming)? */
+  heeftStatistieken: boolean;
+};
+
+function bouwPrivacyBody(g: PrivacyGegevens): string {
+  const naam = escapeHtml(g.bedrijfsnaam);
+  const regels: string[] = [];
+
+  const kop = (tekst: string) => `<h2 class="mt-10 text-xl font-semibold">${tekst}</h2>`;
+  const tekst = (inhoud: string) => `<p class="mt-3 leading-relaxed">${inhoud}</p>`;
+
+  regels.push(`<h1 class="text-3xl font-bold">Privacybeleid</h1>`);
+  regels.push(
+    tekst(
+      `Deze pagina legt uit welke gegevens ${naam} via deze website verzamelt, waarom dat ` +
+        `gebeurt en wat je eraan kan doen.`,
+    ),
+  );
+
+  regels.push(kop("Wie verwerkt je gegevens"));
+  const contactRegels = [`<strong>${naam}</strong>`];
+  if (g.adres) contactRegels.push(escapeHtml(g.adres));
+  if (g.telefoon) contactRegels.push(escapeHtml(g.telefoon));
+  regels.push(tekst(contactRegels.join("<br>")));
+
+  regels.push(kop("Welke gegevens, en waarvoor"));
+  const punten: string[] = [];
+  if (g.heeftFormulier) {
+    punten.push(
+      `<strong>Wat je in een formulier invult</strong> — je naam, je e-mailadres en je bericht. ` +
+        `Die gebruiken we alleen om je vraag te beantwoorden, niet om je later ongevraagd te mailen.`,
+    );
+  }
+  if (g.heeftReviews) {
+    punten.push(
+      `<strong>Een review die je zelf achterlaat</strong> — de naam en de tekst die je invult. ` +
+        `Een review verschijnt pas op de site nadat wij ze hebben nagelezen.`,
+    );
+  }
+  if (g.heeftBeveiligdePagina) {
+    punten.push(
+      `<strong>De toegangscode van een afgeschermde pagina</strong> — als je die invult, onthoudt ` +
+        `je browser dat je ze had, zodat je ze niet elke keer opnieuw moet typen. Daar hoort geen ` +
+        `naam of e-mailadres bij.`,
+    );
+  }
+  if (g.heeftStatistieken) {
+    punten.push(
+      `<strong>Anonieme bezoekcijfers</strong> — hoeveel mensen welke pagina bekijken, en alleen ` +
+        `als je daar toestemming voor geeft. Er wordt geen profiel van je gemaakt en je wordt niet ` +
+        `over andere websites gevolgd.`,
+    );
+  }
+  if (!punten.length) {
+    regels.push(
+      tekst(
+        `Deze website verzamelt uit zichzelf geen persoonsgegevens. Er staat geen formulier op en ` +
+          `er wordt niets gemeten.`,
+      ),
+    );
+  } else {
+    regels.push(
+      `<ul class="mt-3 list-disc space-y-2 pl-5 leading-relaxed">` +
+        punten.map((p) => `<li>${p}</li>`).join("") +
+        `</ul>`,
+    );
+  }
+
+  regels.push(kop("Hoe lang we het bijhouden"));
+  regels.push(
+    tekst(
+      g.heeftFormulier || g.heeftReviews
+        ? `Berichten en reviews houden we bij zolang ze nuttig zijn voor het contact waar ze uit ` +
+            `voortkomen. Vraag je ons om ze te verwijderen, dan doen we dat.`
+        : `Er worden geen persoonsgegevens bewaard.`,
+    ),
+  );
+
+  regels.push(kop("Wie het nog te zien krijgt"));
+  regels.push(
+    tekst(
+      `We verkopen je gegevens niet en we geven ze niet door voor reclame. Ze staan op de servers ` +
+        `van de partijen die deze website hosten, en die mogen ze alleen gebruiken om die website ` +
+        `te laten werken.`,
+    ),
+  );
+
+  regels.push(kop("Cookies"));
+  regels.push(
+    tekst(
+      g.heeftStatistieken
+        ? `Deze site plaatst geen advertentiecookies. We onthouden in je browser alleen je keuze ` +
+            `over de bezoekcijfers hierboven, zodat we het niet telkens opnieuw vragen. Je kan die ` +
+            `keuze hieronder wijzigen.`
+        : `Deze site plaatst geen advertentie- of trackingcookies.`,
+    ),
+  );
+  if (g.heeftStatistieken) {
+    regels.push(
+      `<p class="mt-4"><button type="button" data-consent-herzien ` +
+        `class="rounded-lg border border-current px-4 py-2 text-sm font-medium">` +
+        `Cookiekeuze wijzigen</button></p>`,
+    );
+  }
+
+  regels.push(kop("Je rechten"));
+  regels.push(
+    tekst(
+      `Je mag altijd vragen welke gegevens we van je hebben, ze laten verbeteren of ze laten ` +
+        `verwijderen. Een bericht via de contactgegevens hierboven volstaat. Ben je niet tevreden ` +
+        `met wat we ermee doen, dan kan je klacht indienen bij de Gegevensbeschermingsautoriteit ` +
+        `(<a class="underline" href="https://www.gegevensbeschermingsautoriteit.be" rel="noopener" ` +
+        `target="_blank">gegevensbeschermingsautoriteit.be</a>).`,
+    ),
+  );
+
+  return `<main class="mx-auto max-w-3xl px-6 py-16">${regels.join("\n")}</main>`;
+}
+
 export function bouwSite(
   bron: SiteBron,
   bedrijfsnaam: string,
   opties: BouwOpties = {},
 ): GebouwdePagina[] {
-  const { bestanden, seo } = opties;
+  const { bestanden, seo, analytics } = opties;
   if (!bron.paginas.some((p) => p.bestand === "index.html")) {
     throw new SiteBuildError("De site heeft geen index.html — dat is verplicht als startpagina.");
   }
@@ -778,7 +941,47 @@ export function bouwSite(
     );
   }
 
-  return bron.paginas.map((pagina) => {
+  // Vanaf hier is het model klaar en neemt de code over. De cookiemelding en de
+  // privacylink worden ná alle controles hierboven toegevoegd, met opzet: ze
+  // horen niet tot wat het model schreef, dus ze mogen ook niet meetellen in
+  // wat het model verweten wordt. Het is dezelfde volgorde als WIDGET_RUNTIME.
+  const consentRuntime = analytics ? bouwConsentRuntime(analytics.scriptUrl) : "";
+
+  // Schreef het model zelf al een privacypagina, dan is die van hem: die staat
+  // netjes in de nav en in bron.paginas, en er twee hebben is verwarrender dan
+  // er één die niet van ons is.
+  const eigenPrivacyPagina = bron.paginas.some((p) => p.bestand === PRIVACY_BESTAND);
+  const alleBodies = Object.values(bodies).join("\n");
+  const privacy: PrivacyGegevens = {
+    bedrijfsnaam,
+    adres: seo?.adres,
+    telefoon: seo?.telefoon,
+    heeftFormulier: /data-widget\s*=\s*"formulier"/i.test(alleBodies),
+    heeftReviews: /data-widget\s*=\s*"reviews"/i.test(alleBodies),
+    heeftBeveiligdePagina: bron.paginas.some((p) => p.toegang === "beveiligd"),
+    heeftStatistieken: !!analytics,
+  };
+
+  if (!eigenPrivacyPagina) {
+    // In de footer, niet in de nav: een juridische pagina hoort daar volgens
+    // gewoonte thuis, en de bereikbaarheidscontrole hierboven kijkt enkel naar
+    // de nav én enkel naar bron.paginas — die ziet deze pagina dus nooit.
+    //
+    // Binnen de laatste </footer> en niet erachter: erachter plakken geeft een
+    // link die los in de <body> hangt. Dat ziet er in een screenshot identiek
+    // uit — het staat onderaan — maar het is geen footerinhoud meer, en dat is
+    // precies het soort verschil dat de review-loop nooit kan zien.
+    const link =
+      `<p class="mx-auto max-w-3xl px-6 pb-6 text-center text-xs opacity-70">` +
+      `<a href="${PRIVACY_BESTAND}">Privacybeleid</a></p>`;
+    const sluit = footerResultaat.html.lastIndexOf("</footer>");
+    footerResultaat.html =
+      sluit === -1
+        ? `${footerResultaat.html}\n${link}`
+        : `${footerResultaat.html.slice(0, sluit)}${link}\n${footerResultaat.html.slice(sluit)}`;
+  }
+
+  const gebouwdePaginas = bron.paginas.map((pagina) => {
     const nav = markeerActievePagina(navResultaat.html, pagina.bestand, pagina.ouder);
     if (nav.gemarkeerd === 0) {
       throw new SiteBuildError(
@@ -846,6 +1049,7 @@ export function bouwSite(
         // already exists by the time it runs — no widget depends on where the
         // model happened to place anything.
         WIDGET_RUNTIME,
+        consentRuntime,
         "</body>",
         "</html>",
         "",
@@ -856,6 +1060,45 @@ export function bouwSite(
     // vulEndpointsIn for why the values it fills in are relative.
     return { ...gebouwd, html: optimaliseerAfbeeldingen(vulEndpointsIn(gebouwd.html)) };
   });
+
+  if (eigenPrivacyPagina) return gebouwdePaginas;
+
+  // Dezelfde schil als elke andere pagina — dezelfde head, nav en footer — maar
+  // zonder actieve nav-markering, want deze pagina staat niet in het menu.
+  const privacyHtml = [
+    "<!DOCTYPE html>",
+    '<html lang="nl">',
+    "<head>",
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    `<title>Privacybeleid — ${escapeHtml(bedrijfsnaam)}</title>`,
+    `<meta name="description" content="${escapeHtml(`Hoe ${bedrijfsnaam} omgaat met je gegevens.`)}">`,
+    // Bewust geen canonical of Open Graph: een privacypagina hoort niet gedeeld
+    // of apart geïndexeerd te worden, en om diezelfde reden staat ze ook niet
+    // in de sitemap (die wordt uit site_versions.paginas gebouwd).
+    '<meta name="robots" content="noindex">',
+    '<script src="https://cdn.tailwindcss.com"></script>',
+    bron.head,
+    ACTIEF_STIJL,
+    "</head>",
+    "<body>",
+    navResultaat.html,
+    bouwPrivacyBody(privacy),
+    footerResultaat.html,
+    WIDGET_RUNTIME,
+    consentRuntime,
+    "</body>",
+    "</html>",
+    "",
+  ].join("\n");
+
+  gebouwdePaginas.push({
+    bestand: PRIVACY_BESTAND,
+    titel: "Privacybeleid",
+    html: optimaliseerAfbeeldingen(vulEndpointsIn(privacyHtml)),
+  });
+
+  return gebouwdePaginas;
 }
 
 // ─────────────────────────────────────────────────────────────────────────

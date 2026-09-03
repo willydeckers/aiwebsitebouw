@@ -115,7 +115,11 @@ export default function DashboardLayout({
       </aside>
 
       <div className="flex flex-1 flex-col gap-4">
-        <header className="flex items-center justify-between rounded-full border border-white/70 bg-white/50 px-6 py-3 shadow-lg shadow-blue-200/30 backdrop-blur-2xl backdrop-saturate-150">
+        {/* relative z-30: het profielmenu klapt vanuit deze balk naar beneden,
+            over de inhoud heen. Zonder eigen stapelcontext hier tekent de kaart
+            hieronder — die door backdrop-blur zijn eigen context maakt — eróver,
+            en zag je enkel het bovenste streepje van het menu. */}
+        <header className="relative z-30 flex items-center justify-between rounded-full border border-white/70 bg-white/50 px-6 py-3 shadow-lg shadow-blue-200/30 backdrop-blur-2xl backdrop-saturate-150">
           <p className="text-sm font-medium text-slate-600">Dashboard</p>
           <ProfileBubble user={session.user} />
         </header>

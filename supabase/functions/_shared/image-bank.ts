@@ -32,6 +32,16 @@
 // Commons was checked as a source for tea imagery on 2026-07-27 and rejected —
 // the candidates were all CC BY-SA, which needs visible attribution and is
 // share-alike. That is not something to put on a client's commercial site.
+//
+// Uitgebreid op 2026-09-02 met bakker, slager, apotheek, dierenarts,
+// fietsenmaker en schoonheidssalon. Bakker en slager waren kernsectoren voor
+// dit bureau die tot dan nul foto's hadden en dus altijd op kleurvlakken
+// uitkwamen. Elke URL hieronder is volgens hetzelfde protocol één voor één in
+// een browser geopend en bekeken voor ze hier is beland; één kandidaat voor
+// fietsenmaker ("A white mountain bike is hanging", photo-1765376260870) is
+// daarbij afgewezen — die bleek een donker beeld met "verhuur" in de tekst,
+// wat een herstelzaak verkeerd voorstelt. Dat is precies waarom deze lijst
+// bekeken en niet gegokt wordt.
 
 export type BankAfbeelding = {
   naam: string;
@@ -124,6 +134,108 @@ export const IMAGE_BANK: BankAfbeelding[] = [
     omschrijving: "bouwvakkers met veiligheidsvesten op een werf",
     url: "https://images.unsplash.com/photo-1541888946425-d81bb19240f5?auto=format&fit=crop&w=800&q=80",
     trefwoorden: ["bouw", "aannemer", "renovatie", "dakwerk", "schrijnwerk", "installatie"],
+  },
+  {
+    naam: "bakker-toonbank",
+    omschrijving: "bakkerij-interieur met een vitrine vol brood en gebak",
+    url: "https://images.unsplash.com/photo-1711672284661-bd70e38f31b2?auto=format&fit=crop&w=2000&q=80",
+    trefwoorden: ["bakker", "bakkerij", "banket", "patisserie"],
+  },
+  {
+    naam: "bakker-gebak",
+    omschrijving: "croissants en zoet gebak in een verlichte vitrine",
+    url: "https://images.unsplash.com/photo-1568254183919-78a4f43a2877?auto=format&fit=crop&w=800&q=80",
+    trefwoorden: ["bakker", "bakkerij", "banket", "patisserie", "koffiekoek"],
+  },
+  {
+    naam: "bakker-brood",
+    omschrijving: "rustieke zuurdesembroden met korenaren op hout",
+    url: "https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&w=800&q=80",
+    trefwoorden: ["bakker", "bakkerij", "brood", "zuurdesem"],
+  },
+  {
+    naam: "slager-toonbank",
+    omschrijving: "donkere rijpingskast met stukken vlees achter glas",
+    url: "https://images.unsplash.com/photo-1584048603508-4b31894439a9?auto=format&fit=crop&w=2000&q=80",
+    trefwoorden: ["slager", "slagerij", "beenhouwer"],
+  },
+  {
+    naam: "slager-vakwerk",
+    omschrijving: "slager die achter de toonbank vlees versnijdt",
+    url: "https://images.unsplash.com/photo-1560166444-441876015a70?auto=format&fit=crop&w=800&q=80",
+    trefwoorden: ["slager", "slagerij", "beenhouwer"],
+  },
+  {
+    naam: "slager-vitrine",
+    omschrijving: "gevulde koeltoonbank met verse stukken vlees",
+    url: "https://images.unsplash.com/photo-1625643269470-5d3e7b69fa34?auto=format&fit=crop&w=800&q=80",
+    trefwoorden: ["slager", "slagerij", "beenhouwer"],
+  },
+  {
+    naam: "apotheek-advies",
+    omschrijving: "apothekeres die een doosje uit het rek neemt",
+    url: "https://images.unsplash.com/photo-1580281657527-47f249e8f4df?auto=format&fit=crop&w=2000&q=80",
+    trefwoorden: ["apotheek", "apotheker", "farmac"],
+  },
+  {
+    naam: "apotheek-toonbank",
+    omschrijving: "apotheker die een klant aan de balie uitleg geeft",
+    url: "https://images.unsplash.com/photo-1576091358783-a212ec293ff3?auto=format&fit=crop&w=800&q=80",
+    trefwoorden: ["apotheek", "apotheker", "farmac"],
+  },
+  {
+    naam: "apotheek-rekken",
+    omschrijving: "rekken met geordende geneesmiddelendoosjes",
+    url: "https://images.unsplash.com/photo-1642055514517-7b52288890ec?auto=format&fit=crop&w=800&q=80",
+    trefwoorden: ["apotheek", "apotheker", "farmac"],
+  },
+  {
+    naam: "dierenarts-onderzoek",
+    omschrijving: "dierenarts met stethoscoop die een teckel onderzoekt",
+    url: "https://images.unsplash.com/photo-1770836037793-95bdbf190f71?auto=format&fit=crop&w=2000&q=80",
+    trefwoorden: ["dierenarts", "veearts", "dierenkliniek", "dierenpraktijk"],
+  },
+  {
+    naam: "dierenarts-behandeling",
+    omschrijving: "twee dierenartsen die een hond op de behandeltafel verzorgen",
+    url: "https://images.unsplash.com/photo-1700665537604-412e89a285c3?auto=format&fit=crop&w=800&q=80",
+    trefwoorden: ["dierenarts", "veearts", "dierenkliniek", "dierenpraktijk"],
+  },
+  {
+    naam: "dierenarts-pup",
+    omschrijving: "kleine pluizige hond die vastgehouden wordt in de praktijk",
+    url: "https://images.unsplash.com/photo-1588626863948-1d7978596f17?auto=format&fit=crop&w=800&q=80",
+    trefwoorden: ["dierenarts", "veearts", "dierenkliniek", "dierenpraktijk", "trimsalon"],
+  },
+  {
+    naam: "fiets-werkplaats",
+    omschrijving: "werkbank met gereedschap aan de wand in een herstelatelier",
+    url: "https://images.unsplash.com/photo-1760310936486-4dd450aab2a8?auto=format&fit=crop&w=2000&q=80",
+    trefwoorden: ["fiets", "fietsenmaker", "fietsherstel", "tweewieler"],
+  },
+  {
+    naam: "fiets-herstelling",
+    omschrijving: "iemand die een fiets herstelt, gehurkt bij het achterwiel",
+    url: "https://images.unsplash.com/photo-1777404658877-f1c9edf42f34?auto=format&fit=crop&w=800&q=80",
+    trefwoorden: ["fiets", "fietsenmaker", "fietsherstel", "tweewieler"],
+  },
+  {
+    naam: "schoonheid-gezichtsverzorging",
+    omschrijving: "gezichtsverzorging met handen die het gezicht masseren",
+    url: "https://images.unsplash.com/photo-1731514771613-991a02407132?auto=format&fit=crop&w=2000&q=80",
+    trefwoorden: ["schoonheidssalon", "schoonheidsspecialist", "beautysalon", "gelaatsverzorging"],
+  },
+  {
+    naam: "schoonheid-masker",
+    omschrijving: "gezichtsmasker dat met een borstel aangebracht wordt",
+    url: "https://images.unsplash.com/photo-1761718210089-ba3bb5ccb54f?auto=format&fit=crop&w=800&q=80",
+    trefwoorden: ["schoonheidssalon", "schoonheidsspecialist", "beautysalon", "gelaatsverzorging"],
+  },
+  {
+    naam: "schoonheid-salon",
+    omschrijving: "rustig saloninterieur met een behandelstoel en spiegel",
+    url: "https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?auto=format&fit=crop&w=800&q=80",
+    trefwoorden: ["schoonheidssalon", "beautysalon", "nagelstudio", "manicure"],
   },
 ];
 

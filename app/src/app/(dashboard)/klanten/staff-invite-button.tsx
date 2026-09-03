@@ -47,7 +47,7 @@ export function StaffInviteButton({
           checked={metBestellingen}
           onChange={(e) => setMetBestellingen(e.target.checked)}
         />
-        Ook toegang tot Bestellingen (spec sectie 4 — optioneel)
+        Ook toegang tot Bestellingen
       </label>
 
       <button

@@ -16,6 +16,9 @@ import { AI_MODELLEN, STANDAARD_AI_MODEL, type AiModel } from "@/lib/ai-modellen
 import { updateLeadAiModel, updateLeadGegevens, updateLeadNotities } from "./actions";
 import { StatusBadge } from "./status-badge";
 import { PipelineButton } from "./pipeline-button";
+import { SiteContactPanel } from "./site-contact-panel";
+import { demoBasisUrl } from "@/lib/demo-link";
+import { ChatVenster } from "./chat-venster";
 import { DemoPreview } from "./demo-preview";
 import { ConvertButton } from "./convert-button";
 import { CostSummaryView } from "./cost-summary-view";
@@ -49,6 +52,16 @@ export function LeadDetailPanel({
   const [costSummary, setCostSummary] = useState<CostSummary | null>(null);
   const [latestJob, setLatestJob] = useState<Job | null>(null);
   const [duurSchattingen, setDuurSchattingen] = useState<DuurSchattingen>({});
+  // Bedrijfsgegevens en modelkeuze zet je één keer en kijk je zelden terug in;
+  // ze stonden altijd open bovenaan, boven de dingen waar je wél voor komt.
+  const [instellingenOpen, setInstellingenOpen] = useState(false);
+  // De twee lappen tekst in dit paneel. Ze stonden altijd volledig open, wat
+  // het paneel lang maakte terwijl je meestal voor de status en de preview
+  // komt. Notities gaan vanzelf open zodra er nog niets staat: dan is het geen
+  // lap tekst maar het veld dat je juist moet invullen.
+  const [chatOpen, setChatOpen] = useState(false);
+  const [notitiesOpen, setNotitiesOpen] = useState(false);
+  const [vragenOpen, setVragenOpen] = useState(false);
   // Drives the live elapsed counter on a running job. A plain interval rather
   // than anything cleverer — it only ticks while a job is actually running.
   const [nu, setNu] = useState(() => Date.now());
@@ -198,7 +211,7 @@ export function LeadDetailPanel({
   const latestVersion = siteVersions[0] ?? null;
   const actieveVersion = siteVersions.find((v) => v.status === "actief") ?? null;
 
-  const demoHostingBase = process.env.NEXT_PUBLIC_DEMO_HOSTING_URL;
+  const demoHostingBase = demoBasisUrl();
   // Only a genuinely actieve version resolves on the public hosting route
   // (track-and-serve returns 404 otherwise) — building the URL from any
   // latest version would show a broken link before the first approval.
@@ -244,111 +257,9 @@ export function LeadDetailPanel({
           </button>
         </div>
 
-        <section className="mt-6 space-y-2 text-sm">
-          <h3 className="font-medium text-slate-700">Bedrijfsgegevens</h3>
-
-          <div className="space-y-1">
-            <label htmlFor="lead-adres" className="text-xs text-slate-500">
-              Adres
-            </label>
-            <input
-              id="lead-adres"
-              value={adres}
-              onChange={(e) => setAdres(e.target.value)}
-              onBlur={handleGegevensBlur}
-              placeholder="Geen adres"
-              className="w-full rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label htmlFor="lead-contact-naam" className="text-xs text-slate-500">
-              Contactpersoon
-            </label>
-            <input
-              id="lead-contact-naam"
-              value={contactNaam}
-              onChange={(e) => setContactNaam(e.target.value)}
-              onBlur={handleGegevensBlur}
-              placeholder="Geen contactpersoon"
-              className="w-full rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label htmlFor="lead-contact-email" className="text-xs text-slate-500">
-              Contact e-mail
-              {lead.contact_email_persoonsgebonden ? (
-                <span className="ml-1 text-amber-600">
-                  (persoonsgebonden — zie GDPR-regel spec 7)
-                </span>
-              ) : null}
-            </label>
-            <input
-              id="lead-contact-email"
-              type="email"
-              value={contactEmail}
-              onChange={(e) => setContactEmail(e.target.value)}
-              onBlur={handleGegevensBlur}
-              placeholder="Geen contact e-mail"
-              className="w-full rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
-            />
-          </div>
-
-          {gegevensSaving ? (
-            <p className="text-xs text-slate-400">Opslaan...</p>
-          ) : gegevensError ? (
-            <p className="text-xs text-red-600">{gegevensError}</p>
-          ) : null}
-
-          {lead.herkomst === "sourcing" ? (
-            <p className="text-xs text-slate-400">Herkomst: automatische sourcing-run</p>
-          ) : null}
-        </section>
-
-        <section className="mt-6 space-y-2 text-sm">
-          <h3 className="font-medium text-slate-700">AI-model</h3>
-
-          <div className="space-y-1">
-            <select
-              id="lead-ai-model"
-              aria-label="AI-model voor deze lead"
-              value={lead.ai_model ?? STANDAARD_AI_MODEL}
-              onChange={(e) => handleModelChange(e.target.value as AiModel)}
-              disabled={modelSaving}
-              className="w-full rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200 disabled:opacity-60"
-            >
-              {AI_MODELLEN.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-slate-500">{gekozenModel.uitleg}</p>
-          </div>
-
-          <p className="text-xs text-slate-400">
-            Geldt vanaf de volgende pipeline-stap — een al gegenereerde site verandert niet.
-          </p>
-
-          {modelSaving ? (
-            <p className="text-xs text-slate-400">Opslaan...</p>
-          ) : modelError ? (
-            <p className="text-xs text-red-600">{modelError}</p>
-          ) : null}
-        </section>
-
-        <section className="mt-6">
-          {lead.klant_type ? (
-            <p className="text-sm text-slate-600">
-              Klant — type: <span className="font-medium">{lead.klant_type}</span>
-              {lead.shopify_store_id ? ` (store: ${lead.shopify_store_id})` : ""}
-            </p>
-          ) : (
-            <ConvertButton leadId={lead.id} bedrijfsnaam={lead.bedrijfsnaam} onChanged={onChanged} />
-          )}
-        </section>
-
+        {/* Waar deze lead staat en wat de volgende stap is, staat bovenaan:
+            dat is waarvoor dit paneel meestal geopend wordt. Alles wat je
+            eenmalig instelt of pas na de verkoop nodig hebt, staat lager. */}
         <section className="mt-6">
           <h3 className="text-sm font-medium text-slate-700">Status</h3>
 
@@ -429,59 +340,13 @@ export function LeadDetailPanel({
               ) : null}
               {latestJob.type === "review" ? (
                 <span className="block text-slate-400">
-                  Verwerkt door de aparte worker-service (max 5 iteraties, spec 3.4) — vereist dat
-                  `worker/` ergens draait.
+                  Wordt verwerkt door de worker, die de site tot 5 keer laat nakijken en bijwerken
+                  — vereist dat `worker/` ergens draait.
                 </span>
               ) : null}
             </p>
           ) : null}
         </section>
-
-        <section className="mt-6 space-y-1">
-          <label htmlFor="notities" className="text-sm font-medium text-slate-700">
-            Notities / briefing
-          </label>
-          <textarea
-            id="notities"
-            value={notities}
-            onChange={(e) => setNotities(e.target.value)}
-            onBlur={handleBlur}
-            rows={5}
-            className="w-full rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
-          />
-          {saving ? (
-            <p className="text-xs text-slate-400">Opslaan...</p>
-          ) : saveError ? (
-            <p className="text-xs text-red-600">{saveError}</p>
-          ) : null}
-        </section>
-
-        {lead.open_vragen ? (
-          <section className="mt-6 space-y-1 text-sm">
-            <h3 className="font-medium text-slate-700">Open vragen (research, 3.2)</h3>
-            <p className="text-slate-600">{lead.open_vragen}</p>
-          </section>
-        ) : null}
-
-        {latestVersion ? (
-          <DemoPreview
-            lead={lead}
-            demoUrl={demoUrl}
-            siteVersion={latestVersion}
-            reviewLog={reviewLog}
-            onChanged={onChanged}
-          />
-        ) : null}
-
-        <VersionHistory leadId={lead.id} versions={siteVersions} onChanged={onChanged} />
-
-        <SiteInteractiePanel leadId={lead.id} />
-
-        <KlantPanel leadId={lead.id} bedrijfsnaam={lead.bedrijfsnaam} klantType={lead.klant_type} />
-
-        <StoreAanmaakPanel leadId={lead.id} klantType={lead.klant_type} onChanged={onChanged} />
-
-        {costSummary ? <CostSummaryView summary={costSummary} /> : null}
 
         <section className="mt-6 space-y-2">
           {storeAutomatiseringBezig ? (
@@ -499,6 +364,242 @@ export function LeadDetailPanel({
             reviewHandled={reviewReached}
             onChanged={onChanged}
           />
+
+          {/* De chat hing vroeger onder de demo-preview, en die verschijnt pas
+              als er een site is. Bij een verse lead was er dus geen chat, terwijl
+              het paneel wel de indruk gaf dat je er kon praten. Nu staat hij hier
+              en werkt hij ook zonder versie: je bericht is dan de briefing voor
+              de eerste generatie. */}
+          <button
+            type="button"
+            onClick={() => setChatOpen(true)}
+            className="w-full rounded-xl border border-blue-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-blue-50"
+          >
+            {latestVersion ? "Open chat over deze site" : "Open chat — brief de eerste versie"}
+          </button>
+        </section>
+
+        {latestVersion ? (
+          <DemoPreview
+            lead={lead}
+            demoUrl={demoUrl}
+            siteVersion={latestVersion}
+            reviewLog={reviewLog}
+            onChanged={onChanged}
+          />
+        ) : null}
+
+        <VersionHistory leadId={lead.id} versions={siteVersions} onChanged={onChanged} />
+
+        <section className="mt-6 space-y-1">
+          <button
+            type="button"
+            onClick={() => setNotitiesOpen((v) => !v)}
+            className="flex w-full items-center justify-between rounded-xl border border-blue-100 px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-blue-50"
+          >
+            <span>
+              Notities / briefing
+              {notities.trim() ? (
+                <span className="ml-2 text-xs font-normal text-slate-400">
+                  {notities.trim().length} tekens
+                </span>
+              ) : (
+                <span className="ml-2 text-xs font-normal text-amber-700">nog leeg</span>
+              )}
+            </span>
+            <span className="text-xs text-slate-400">
+              {notitiesOpen || !notities.trim() ? "verbergen" : "tonen"}
+            </span>
+          </button>
+
+          {notitiesOpen || !notities.trim() ? (
+            <>
+              <label htmlFor="notities" className="sr-only">
+                Notities / briefing
+              </label>
+              <textarea
+                id="notities"
+                value={notities}
+                onChange={(e) => setNotities(e.target.value)}
+                onBlur={handleBlur}
+                rows={5}
+                placeholder="Wat je over dit bedrijf weet: aanbod, openingsuren, wat ze zelf aanleveren."
+                className="w-full rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+              />
+              {saving ? (
+                <p className="text-xs text-slate-400">Opslaan...</p>
+              ) : saveError ? (
+                <p className="text-xs text-red-600">{saveError}</p>
+              ) : null}
+            </>
+          ) : null}
+        </section>
+
+        {lead.open_vragen ? (
+          <section className="mt-6 space-y-1 text-sm">
+            <button
+              type="button"
+              onClick={() => setVragenOpen((v) => !v)}
+              className="flex w-full items-center justify-between rounded-xl border border-amber-200 bg-amber-50/60 px-3 py-2 text-left font-medium text-amber-900 hover:bg-amber-50"
+            >
+              <span>Openstaande vragen uit de research</span>
+              <span className="text-xs text-amber-700">{vragenOpen ? "verbergen" : "tonen"}</span>
+            </button>
+            {vragenOpen ? (
+              <p className="whitespace-pre-wrap rounded-xl border border-amber-100 p-3 text-slate-600">
+                {lead.open_vragen}
+              </p>
+            ) : null}
+          </section>
+        ) : null}
+
+        {/* Alles wat pas speelt zodra er een klant van komt, onder één kop.
+            De blokken hieronder houden hun eigen uitklap: hun label draagt een
+            telling of statuskleur die je juist wil zien zonder open te klappen. */}
+        <section className="mt-8 border-t border-slate-100 pt-5">
+          <h3 className="text-sm font-medium text-slate-700">Klant &amp; account</h3>
+          <p className="mt-0.5 text-xs text-slate-400">
+            Het pakket, het domein, de Shopify-winkel en wat de site zelf binnenkrijgt — dit
+            wordt pas ingevuld zodra deze lead klant wordt.
+          </p>
+
+          <div className="mt-2">
+            {lead.klant_type ? (
+              <p className="text-sm text-slate-600">
+                Klant — type: <span className="font-medium">{lead.klant_type}</span>
+                {lead.shopify_store_id ? ` (store: ${lead.shopify_store_id})` : ""}
+              </p>
+            ) : (
+              <ConvertButton leadId={lead.id} bedrijfsnaam={lead.bedrijfsnaam} onChanged={onChanged} />
+            )}
+          </div>
+
+          <SiteContactPanel leadId={lead.id} />
+
+          <SiteInteractiePanel leadId={lead.id} />
+
+          <KlantPanel leadId={lead.id} bedrijfsnaam={lead.bedrijfsnaam} klantType={lead.klant_type} />
+
+          <StoreAanmaakPanel leadId={lead.id} klantType={lead.klant_type} onChanged={onChanged} />
+
+          {costSummary ? <CostSummaryView summary={costSummary} /> : null}
+        </section>
+
+        <section className="mt-8 space-y-2 border-t border-slate-100 pt-5 text-sm">
+          <button
+            type="button"
+            onClick={() => setInstellingenOpen((v) => !v)}
+            className="flex w-full items-center justify-between rounded-xl border border-blue-100 px-3 py-2 text-left font-medium text-slate-700 hover:bg-blue-50"
+          >
+            <span>Instellingen</span>
+            <span className="text-xs text-slate-400">{instellingenOpen ? "verbergen" : "tonen"}</span>
+          </button>
+
+          {!instellingenOpen ? null : (
+            <div className="space-y-5 rounded-xl border border-blue-100 p-3">
+              <p className="text-xs text-slate-400">
+                Gegevens en modelkeuze voor deze lead. Je stelt dit meestal één keer in.
+              </p>
+
+              <div className="space-y-2">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Bedrijfsgegevens
+                </h4>
+
+                <div className="space-y-1">
+                  <label htmlFor="lead-adres" className="text-xs text-slate-500">
+                    Adres
+                  </label>
+                  <input
+                    id="lead-adres"
+                    value={adres}
+                    onChange={(e) => setAdres(e.target.value)}
+                    onBlur={handleGegevensBlur}
+                    placeholder="Geen adres"
+                    className="w-full rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label htmlFor="lead-contact-naam" className="text-xs text-slate-500">
+                    Contactpersoon
+                  </label>
+                  <input
+                    id="lead-contact-naam"
+                    value={contactNaam}
+                    onChange={(e) => setContactNaam(e.target.value)}
+                    onBlur={handleGegevensBlur}
+                    placeholder="Geen contactpersoon"
+                    className="w-full rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label htmlFor="lead-contact-email" className="text-xs text-slate-500">
+                    Contact e-mail
+                    {lead.contact_email_persoonsgebonden ? (
+                      <span className="ml-1 text-amber-600">
+                        (persoonlijk e-mailadres — vraag toestemming voor je het bewaart)
+                      </span>
+                    ) : null}
+                  </label>
+                  <input
+                    id="lead-contact-email"
+                    type="email"
+                    value={contactEmail}
+                    onChange={(e) => setContactEmail(e.target.value)}
+                    onBlur={handleGegevensBlur}
+                    placeholder="Geen contact e-mail"
+                    className="w-full rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                  />
+                </div>
+
+                {gegevensSaving ? (
+                  <p className="text-xs text-slate-400">Opslaan...</p>
+                ) : gegevensError ? (
+                  <p className="text-xs text-red-600">{gegevensError}</p>
+                ) : null}
+
+                {lead.herkomst === "sourcing" ? (
+                  <p className="text-xs text-slate-400">Herkomst: automatische sourcing-run</p>
+                ) : null}
+              </div>
+
+              <div className="space-y-2">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  AI-model
+                </h4>
+
+                <div className="space-y-1">
+                  <select
+                    id="lead-ai-model"
+                    aria-label="AI-model voor deze lead"
+                    value={lead.ai_model ?? STANDAARD_AI_MODEL}
+                    onChange={(e) => handleModelChange(e.target.value as AiModel)}
+                    disabled={modelSaving}
+                    className="w-full rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200 disabled:opacity-60"
+                  >
+                    {AI_MODELLEN.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-slate-500">{gekozenModel.uitleg}</p>
+                </div>
+
+                <p className="text-xs text-slate-400">
+                  Geldt vanaf de volgende pipeline-stap — een al gegenereerde site verandert niet.
+                </p>
+
+                {modelSaving ? (
+                  <p className="text-xs text-slate-400">Opslaan...</p>
+                ) : modelError ? (
+                  <p className="text-xs text-red-600">{modelError}</p>
+                ) : null}
+              </div>
+            </div>
+          )}
         </section>
 
         <section className="mt-6 border-t border-slate-100 pt-4">
@@ -512,6 +613,16 @@ export function LeadDetailPanel({
           />
         </section>
       </div>
+
+      {chatOpen ? (
+        <ChatVenster
+          lead={lead}
+          siteVersion={latestVersion ?? null}
+          liveVersion={siteVersions.find((v) => v.status === "actief") ?? null}
+          onChanged={onChanged}
+          onClose={() => setChatOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }

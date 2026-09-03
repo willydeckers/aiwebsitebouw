@@ -1,5 +1,6 @@
 import { createWorkerClient } from "./shared/supabase.js";
 import { controleerOmgeving } from "./shared/omgeving.js";
+import { laadInstellingen } from "./shared/instellingen.js";
 import { processGenerateJob } from "./pipeline/generate-job.js";
 import { processResearchJob } from "./pipeline/research-job.js";
 import { processShopifyStoreAanmaakJob } from "./shopify/store-aanmaak-job.js";
@@ -14,9 +15,10 @@ const JOB_TIMEOUT_MS = 15 * 60 * 1000;
 
 const HARTSLAG_MS = 15_000;
 
-// Refuses to start on a missing core variable, and reports which job types
-// can't be handled with what's configured.
-const { onbruikbareTypes } = controleerOmgeving();
+// Welke jobtypes deze worker niet aankan met wat er geconfigureerd is. Wordt
+// gevuld in start() hieronder: de instellingen komen uit de database, en dat
+// kan niet synchroon terwijl deze module ingeladen wordt.
+let onbruikbareTypes = new Set<string>();
 
 const supabase = createWorkerClient();
 
@@ -227,18 +229,46 @@ function stopBijGeslotenInvoer() {
   process.stdin.resume();
 }
 
-stopBijGeslotenInvoer();
+/**
+ * Opstarten, in deze volgorde met opzet: eerst de instellingen uit de app
+ * ophalen, dan pas controleren of de omgeving compleet is. Andersom zou de
+ * worker klagen over een sleutel die al lang ingevuld staat — alleen niet in
+ * het bestand waar hij toevallig keek.
+ */
+async function start() {
+  const { geladen, fout } = await laadInstellingen();
+  if (geladen.length) {
+    console.log(`Instellingen uit de app geladen: ${geladen.join(", ")}.`);
+  }
+  if (fout) {
+    // Geen reden om te stoppen: zonder tabel of zonder rijen gelden gewoon de
+    // waarden uit de omgeving, precies zoals voor dit scherm bestond.
+    console.warn(`Kon de instellingen niet ophalen (${fout}) — enkel de omgeving wordt gebruikt.`);
+  }
 
-void supabase
-  .from("worker_status")
-  .update({ gestart_op: new Date().toISOString(), laatste_hartslag: new Date().toISOString() })
-  .eq("id", true);
+  try {
+    ({ onbruikbareTypes } = controleerOmgeving());
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
 
-console.log(
-  "Worker gestart — pollt jobs (research, generatie, review, shopify_opbouw, " +
-    "shopify_store_aanmaak) elke 5s.",
-);
+  stopBijGeslotenInvoer();
 
-// Reclaim before polling, so a restart picks up where the last one was killed
-// instead of leaving those jobs stranded.
-void herstelVerweesdeJobs().then(pollLoop);
+  void supabase
+    .from("worker_status")
+    .update({ gestart_op: new Date().toISOString(), laatste_hartslag: new Date().toISOString() })
+    .eq("id", true);
+
+  console.log(
+    "Worker gestart — pollt jobs (research, generatie, review, shopify_opbouw, " +
+      "shopify_store_aanmaak) elke 5s.",
+  );
+
+  // Reclaim before polling, so a restart picks up where the last one was killed
+  // instead of leaving those jobs stranded.
+  await herstelVerweesdeJobs();
+  await pollLoop();
+}
+
+void start();
