@@ -95,6 +95,52 @@ export function startLokaleHosting(): void {
         return;
       }
 
+      // Geüploade bestanden (een logo, een menukaart) staan niet in de map van
+      // de versie maar op hun eigen pad in `site_bestanden`. Zonder deze route
+      // zocht ik ze in de versiemap, vond ik niets, en bleef een logo leeg —
+      // terwijl het in de app wél verscheen, want die vervangt afbeeldingen
+      // door data-URI's voor de srcdoc-preview.
+      if (rest[0] === "bestanden" && rest[1]) {
+        const naam = decodeURIComponent(rest.slice(1).join("/"));
+        const { data: rij } = await supabase
+          .from("site_bestanden")
+          .select("opslag_pad, content_type, bestandsnaam")
+          .eq("lead_id", leadId)
+          .eq("bestandsnaam", naam)
+          .maybeSingle();
+
+        if (!rij) {
+          res.writeHead(404, { "Content-Type": TYPES.txt });
+          res.end("Bestand niet gevonden.");
+          return;
+        }
+
+        const { data: blob, error: bestandsFout } = await supabase.storage
+          .from("demos")
+          .download(rij.opslag_pad);
+        if (bestandsFout || !blob) {
+          res.writeHead(500, { "Content-Type": TYPES.txt });
+          res.end("Kon bestand niet ophalen.");
+          return;
+        }
+
+        // Zelfde afweging als track-and-serve: afbeeldingen inline, want een
+        // logo hoort in een <img>. SVG niet — dat kan script bevatten en mag
+        // hier niet uitvoeren.
+        const type = rij.content_type ?? "application/octet-stream";
+        const inline = type.startsWith("image/") && type !== "image/svg+xml";
+        res.writeHead(200, {
+          "Content-Type": type,
+          "Content-Disposition": inline
+            ? "inline"
+            : `attachment; filename="${rij.bestandsnaam.replace(/"/g, "")}"`,
+          "X-Content-Type-Options": "nosniff",
+          "Cache-Control": "no-store",
+        });
+        res.end(Buffer.from(await blob.arrayBuffer()));
+        return;
+      }
+
       // De actieve versie is wat je wil tonen; is er nog geen, dan de nieuwste,
       // zodat een concept ook te bekijken is voor het live staat.
       const { data: versies } = await supabase

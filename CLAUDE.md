@@ -1338,6 +1338,11 @@ de juiste Content-Type.
   honeypot, de rate limiting en de moderatie; dat hier half overdoen zou twee versies van
   dezelfde regels opleveren. Een demo waarin iemand het contactformulier invult, loopt dus niet
   halverwege stuk.
+- **Geüploade bestanden hebben een eigen route** (`/{leadId}/bestanden/{naam}`). Die staan
+  niet in de map van de versie maar op hun eigen pad in `site_bestanden`, en dat had ik eerst
+  niet overgenomen: een logo bleef leeg terwijl het in de app wél verscheen — want de app
+  vervangt afbeeldingen door data-URI's voor de srcdoc-preview, en verbergt dat verschil dus.
+  Afbeeldingen inline, de rest als download, SVG bewust ook als download (kan script bevatten).
 - **Bewust geen tweede track-and-serve**: geen toegangscodes, geen sitemap, geen
   domeinroutering. Dit is een kijkvenster op de bestanden, geen hostinglaag.
 - Losstaand te starten met `cd worker && npx tsx --env-file=.env scripts/toon-site.ts`, handig om
@@ -1348,7 +1353,8 @@ functie-URL, met het verschil erbij uitgelegd) en in de **publiceer-dialoog**, w
 waarschuwing over `*.supabase.co` nu een werkende link meekrijgt in plaats van alleen te zeggen
 wat niet kan.
 
-**Geverifieerd in een echte browser**: Bloemen Gielen (`Content-Type: text/html`, geen
+**Geverifieerd in een echte browser**: Florian (het geüploade logo laadt, nul gebroken
+afbeeldingen; de PDF-menukaart komt als download binnen), Bloemen Gielen (`Content-Type: text/html`, geen
 sandbox-CSP, site rendert volledig met beelden en lettertypes) en Tuinbouw Hendrix — dat is een
 meerpagina-site, en daar werkt het klikken tussen pagina's, met de juiste actieve markering in de
 nav.
