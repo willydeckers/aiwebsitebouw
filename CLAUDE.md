@@ -1334,6 +1334,15 @@ cd ../app && npm run app:build  # installer, 27 MB
 Het bestand staat in `app/src-tauri/target/release/bundle/nsis/`. Kopieer het naar de andere
 machine en voer het uit (installeert per gebruiker, dus geen UAC-prompt).
 
+**Twee dingen hielden dit tegen, allebei gevonden toen een tweede machine het niet deed:**
+- De Rust-kant startte de worker alleen als óók de Anthropic-sleutel lokaal ingevuld was
+  (`WorkerConfig::volledig`). Die staat sinds 02/09 in `app_instellingen`, dus op een nieuwe
+  machine weigerde de worker te starten terwijl alles al ingevuld was. Nu volstaat de
+  databaseverbinding; de rest haalt hij daar op.
+- `startLokaleHosting()` stond ná `controleerOmgeving()`, en die stopt het proces bij een
+  ontbrekende sleutel. Dan startte de hosting nooit — terwijl een site tónen juist het enige is
+  dat dan nog prima kan. Staat nu ervoor.
+
 Daarna in de app: inloggen, en bij **Voorkeuren → Worker** enkel de **Supabase-URL** en de
 **service-role-key** invullen. Al de rest — Anthropic, Shopify, analytics, Cloudflare — haalt de
 worker bij het opstarten uit `app_instellingen`, dus die staat er al. Het scherm zegt dat nu ook

@@ -247,16 +247,22 @@ async function start() {
     console.warn(`Kon de instellingen niet ophalen (${fout}) — enkel de omgeving wordt gebruikt.`);
   }
 
+  // De site lokaal serveren zodat ze in een browser te tonen is; op
+  // *.supabase.co komt ze als platte tekst binnen. Zie lokale-server.ts.
+  //
+  // Dit staat met opzet vóór de omgevingscontrole. Die stopt het proces bij een
+  // ontbrekende sleutel, en dan startte de hosting nooit — terwijl een site
+  // tonen juist het enige is dat dan nog prima kan. Een ontbrekende
+  // Anthropic-sleutel betekent dat je niets kan genereren, niet dat je niets
+  // meer mag laten zien.
+  startLokaleHosting();
+
   try {
     ({ onbruikbareTypes } = controleerOmgeving());
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err));
     process.exit(1);
   }
-
-  // De site lokaal serveren zodat ze in een browser te tonen is; op
-  // *.supabase.co komt ze als platte tekst binnen. Zie lokale-server.ts.
-  startLokaleHosting();
 
   stopBijGeslotenInvoer();
 

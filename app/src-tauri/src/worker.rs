@@ -49,10 +49,15 @@ pub struct WorkerConfig {
 }
 
 impl WorkerConfig {
+    /// Genoeg om te kúnnen starten. Bewust alleen de verbinding met de
+    /// database: de rest van de sleutels haalt de worker daar zelf op (zie
+    /// worker/src/shared/instellingen.ts). Hier meer eisen zou betekenen dat
+    /// een tweede machine weigert te starten terwijl alles al ingevuld is —
+    /// en dan draait ook de lokale site-hosting niet, want die zit in
+    /// hetzelfde proces.
     fn volledig(&self) -> bool {
         !self.supabase_url.trim().is_empty()
             && !self.supabase_service_role_key.trim().is_empty()
-            && !self.anthropic_api_key.trim().is_empty()
     }
 
     fn omgeving(&self) -> Vec<(&'static str, &str)> {
@@ -150,8 +155,8 @@ pub fn start(app: &AppHandle, proces: &WorkerProces) -> Result<(), String> {
     let config = lees_config(app);
     if !config.volledig() {
         return Err(
-            "De worker is nog niet ingesteld. Vul de Supabase-URL, de service-role-key en de \
-             Anthropic-sleutel in bij Voorkeuren → Worker."
+            "De worker is nog niet ingesteld. Vul de Supabase-URL en de service-role-key in bij \
+             Voorkeuren → Worker; de rest haalt hij op uit Instellingen."
                 .into(),
         );
     }
