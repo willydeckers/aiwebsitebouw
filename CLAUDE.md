@@ -35,14 +35,14 @@ deployment, live-credential verification, and a couple of deliberately-external 
   access — Postgres checks table-level GRANTs first), which surfaced on 2026-07-24 as
   `permission denied for table X` on every table from the app. Fixed via
   `supabase/migrations/20260724000000_fix_public_grants.sql`, pushed live the same day.
-- **Edge Functions**: confirmed deployed — 10 functions (`research`, `generatie`,
-  `chat-edit-static`, `chat-edit-shopify`, `send-email`, `shopify-staff-invite`,
-  `sourcing-run`, `track-and-serve`, `cleanup-storage`, `gmail-oauth-exchange`) show
-  `ACTIVE` on the linked project, with `ANTHROPIC_API_KEY` and the rest of the secrets
-  table set. **Twee staan er nog niet op**: `lees-afbeelding` en (sinds 02/09)
-  `domein-koppelen`. **`chat-edit-static` is sinds 27/09 lokaal gewijzigd en niet gedeployed**
-  (zie die sectie). `track-and-serve` draait live ook nog in zijn oude vorm — zie de
-  sectie van 2026-09-02 voor het deploy-commando en waarom dat bewust wacht.
+- **Edge Functions**: alle 12 staan `ACTIVE` op het gelinkte project (nagekeken met
+  `supabase functions list` op 2026-09-27): `research`, `generatie`, `chat-edit-static`,
+  `chat-edit-shopify`, `send-email`, `shopify-staff-invite`, `sourcing-run`,
+  `track-and-serve`, `cleanup-storage`, `gmail-oauth-exchange`, `lees-afbeelding` en
+  `domein-koppelen`, met `ANTHROPIC_API_KEY` en de rest van de secrets gezet. (Hier stond tot
+  27/09 dat de laatste twee en de nieuwe `track-and-serve` er niet op stonden — dat klopte al
+  een tijd niet meer.) `chat-edit-static` is op 2026-09-27 opnieuw gedeployed (versie 20) met
+  de wijzigingen van die dag. Deployen altijd vanuit de repo-root.
 - **`.env.local`**: `NEXT_PUBLIC_SUPABASE_URL`/`NEXT_PUBLIC_SUPABASE_ANON_KEY`/
   `ANTHROPIC_API_KEY` set locally. **`NEXT_PUBLIC_DEMO_HOSTING_URL` staat er niét (meer) in** —
   nagekeken op 2026-09-03; de regel hier beweerde sinds 24/07 van wel. De app leidt de
@@ -1661,12 +1661,11 @@ overlay niet als "wit op wit" telt — die wordt overgeslagen), WCAG-verhouding 
 
 ### Niet geverifieerd / nog te doen
 
-- **`chat-edit-static` is niet gedeployed** (versionId, verse `bron.json`, contrastregel):
-  `supabase functions deploy chat-edit-static` vanuit de repo-root. Zonder deploy werkt de app wel
-  (versionId wordt genegeerd), maar blijft het terugdraai-risico van hierboven bestaan.
-- **De knop "Openen in editor" is niet in de verpakte app aangeklikt.** De Rust-kant compileert en
-  het worker-deel is live getest, maar de keten app → Tauri → stdin → VS Code vraagt een nieuwe
-  installer: `cd worker && npm run pak-in`, dan `cd app && npm run app:build`.
+- ~~`chat-edit-static` is niet gedeployed~~ — gedeployed op 2026-09-27 (versie 20).
+- **Installer 0.2.0** (`Web Agency Dashboard_0.2.0_x64-setup.exe`, 27 MB) is gebouwd met al het
+  bovenstaande. Versienummer staat op vier plekken gelijk: `app/package.json`,
+  `app/src-tauri/tauri.conf.json`, `app/src-tauri/Cargo.toml` en `worker/package.json` (plus de
+  twee lockfiles). De knop "Openen in editor" in de verpakte app: zie de installatiesectie hieronder.
 - **Geen echte hergeneratie gedraaid** (kost modelgeld): dat die een nieuwe versie maakt en daarna
   een contrastregel in de chat zet, is enkel door code en typecheck gedekt.
 

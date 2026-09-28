@@ -1,6 +1,6 @@
 {
   "name": "worker",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Spec v9 section 2: separate hosted worker for 'zware taken' (review-loop with Playwright, Shopify store building) that can't run in a Deno Edge Function or a static frontend.",
