@@ -214,6 +214,9 @@ export type Klant = {
   cloudflare_hostname_id: string | null;
   domein_verificatie: DomeinVerificatie | null;
   site_status: string | null;
+  shopify_domain: string | null;
+  shopify_staff_account_status: string | null;
+  domein_gekoppeld_op: string | null;
   pakket_type: PakketType | null;
   /** null = niet van toepassing (aankoop) of onbeperkt. */
   wijzigingen_inbegrepen: number | null;

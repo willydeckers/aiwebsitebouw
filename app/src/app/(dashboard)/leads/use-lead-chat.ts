@@ -25,7 +25,9 @@ export type LeadChat = {
   uploadBezig: boolean;
   fout: string | null;
   verstuur: () => void;
-  genereerOpnieuw: () => void;
+  /** Zonder argument: wat er in het invoerveld staat. De hergenereer-dialoog
+   *  geeft zijn eigen tekst mee. */
+  genereerOpnieuw: (instructie?: string) => void;
   voegBestandToe: (file: File) => void;
 };
 
@@ -45,7 +47,7 @@ export type ChatOpties = {
    * één chat-interface, met de backendkeuze op één plek — en niet twee
    * schermen die uit elkaar groeien, wat precies is wat er gebeurd was.
    */
-  patch?: (leadId: string, instructie: string) => Promise<PatchEditResult>;
+  patch?: (leadId: string, instructie: string, versionId: string) => Promise<PatchEditResult>;
 };
 
 export function useLeadChat(
@@ -121,7 +123,9 @@ export function useLeadChat(
         siteVersionId: siteVersion.id,
       });
 
-      const resultaat = await (opties.patch ?? startPatchEdit)(leadId, instructie);
+      // Expliciet de versie die op het scherm staat: sinds hergenereren een
+      // nieuwe versie maakt, is "de nieuwste" niet noodzakelijk die.
+      const resultaat = await (opties.patch ?? startPatchEdit)(leadId, instructie, siteVersion.id);
       if (resultaat.error) {
         await voegChatBerichtToe({ leadId, rol: "systeem", soort: "patch", tekst: resultaat.error });
         return;
@@ -142,9 +146,10 @@ export function useLeadChat(
     });
   }, [invoer, leadId, siteVersion, onChanged, onVersieGewijzigd, opties.patch]);
 
-  const genereerOpnieuw = useCallback(() => {
+  const genereerOpnieuw = useCallback((meegegeven?: string) => {
     setFout(null);
-    const instructie = invoer.trim();
+    const uitInvoer = meegegeven === undefined;
+    const instructie = (meegegeven ?? invoer).trim();
 
     startBezig(async () => {
       const resultaat = await startGeneration(leadId, instructie || undefined);
@@ -152,8 +157,8 @@ export function useLeadChat(
         setFout(resultaat);
         return;
       }
+      if (uitInvoer) setInvoer("");
       if (instructie) {
-        setInvoer("");
         await voegChatBerichtToe({
           leadId,
           rol: "gebruiker",
@@ -168,9 +173,9 @@ export function useLeadChat(
         soort: "regeneratie",
         siteVersionId: siteVersion?.id ?? null,
         tekst: siteVersion
-          ? instructie
-            ? "Hele site wordt opnieuw gegenereerd met deze instructie; dat levert een nieuwe versie op."
-            : "Hele site wordt opnieuw gegenereerd; dat levert een nieuwe versie op."
+          ? `De hele site wordt opnieuw gegenereerd${instructie ? " met deze instructie" : ""}. Dat ` +
+            `wordt een nieuwe versie; versie ${siteVersion.versienummer} blijft ongewijzigd staan. ` +
+            "Duurt enkele minuten, en de worker moet draaien."
           : instructie
             ? "De site wordt voor het eerst gegenereerd met deze briefing. De worker moet daarvoor draaien."
             : "De site wordt voor het eerst gegenereerd. De worker moet daarvoor draaien.",

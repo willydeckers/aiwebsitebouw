@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SiteVersion } from "@/lib/types";
 import { fetchDemoSite, type DemoSite } from "./version-actions";
 import {
@@ -52,34 +52,50 @@ export function SitePreviewVenster({
   const [viewport, setViewport] = useState<Viewport>("desktop");
   const [fout, setFout] = useState<string | null>(null);
   const [laadt, setLaadt] = useState(true);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
+  // Opnieuw ophalen zodra deze versie inhoudelijk verandert (een chat-edit of
+  // een bewaring in de editor zet laatst_bewerkt_op), niet bij elk nieuw
+  // object dat de ouder na een refetch doorgeeft. Blijft het dezelfde versie,
+  // dan blijf je ook op dezelfde pagina staan.
+  const [geladenVersie, setGeladenVersie] = useState<string | null>(null);
   useEffect(() => {
     let afgebroken = false;
     fetchDemoSite(version).then((geladen) => {
       if (afgebroken) return;
       setSite(geladen);
-      setHuidigePagina(START_PAGINA);
-      setHash("");
+      if (geladenVersie !== version.id) {
+        setHuidigePagina(START_PAGINA);
+        setHash("");
+      }
+      setGeladenVersie(version.id);
       setFout(geladen ? null : "Kon deze versie niet ophalen.");
       setLaadt(false);
     });
     return () => {
       afgebroken = true;
     };
-  }, [version]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [version.id, version.content_referentie, version.laatst_bewerkt_op]);
 
+  // Capture-fase + stopImmediatePropagation: Escape sluit enkel deze laag, niet
+  // ook de werkruimte of het leadpaneel eronder (die luisteren in de
+  // bubbelfase en krijgen de toets dan niet meer).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      e.stopImmediatePropagation();
+      onClose();
     }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
       const bericht = event.data as PreviewNavigatieBericht | undefined;
       if (bericht?.type !== PREVIEW_NAVIGATIE_BERICHT || !site) return;
+      if (event.source !== iframeRef.current?.contentWindow) return;
       if (!site[bericht.bestand]) {
         setFout(`Deze link wijst naar ${bericht.bestand}, maar die pagina bestaat niet in deze versie.`);
         return;
@@ -166,6 +182,7 @@ export function SitePreviewVenster({
           <p className="mt-10 text-sm text-slate-500">Laden…</p>
         ) : html ? (
           <iframe
+            ref={iframeRef}
             key={`${huidigePagina}${hash}`}
             srcDoc={bouwPreviewDocument(html, hash)}
             title={`Preview — ${label(huidigePagina)}`}

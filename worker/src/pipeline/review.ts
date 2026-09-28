@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { MAX_TIER_ONDERSTEUNEND, createAnthropicClient, resolveModel } from "../shared/anthropic.js";
+import { beschrijf, type ContrastProbleem } from "../shared/contrast.js";
 
 const ReviewSchema = z.object({
   goedgekeurd: z.boolean(),
@@ -22,6 +23,9 @@ Controleer:
 - Oogt elke pagina professioneel en compleet (geen kapotte lay-out, lege secties,
   placeholder-tekst), zowel op desktop als op mobiel?
 - Is elke pagina een volwaardige pagina met eigen inhoud, en niet een bijna lege doorverwijzing?
+- Is alle tekst goed leesbaar? Lichte tekst op een lichte achtergrond (of donker op donker) is een
+  fout, ook als het "subtiel" bedoeld is. Je krijgt hieronder ook de contrastproblemen die de code
+  gemeten heeft; die zijn exact, neem ze over in je feedback.
 
 De navigatiebalk en de footer worden door de code op elke pagina identiek gezet, en de actieve
 pagina wordt daar automatisch in gemarkeerd — beoordeel het ontwerp ervan gerust, maar meld geen
@@ -38,6 +42,8 @@ export async function reviewDemo(
     sector: string;
     researchSamenvatting: string | null;
     aiModel?: string | null;
+    /** Door de code gemeten; zie shared/contrast.ts. */
+    contrast?: ContrastProbleem[];
   },
   stijlvoorkeuren: { regel: string }[],
 ): Promise<{ result: ReviewResult; usage: ReviewUsage }> {
@@ -53,6 +59,11 @@ export async function reviewDemo(
     stijlvoorkeuren.length
       ? `Stijlvoorkeuren:\n${stijlvoorkeuren.map((r) => `- ${r.regel}`).join("\n")}`
       : "Geen stijlvoorkeuren geregistreerd.",
+    context.contrast?.length
+      ? `Gemeten contrastproblemen (exact, door de browser berekend):\n${context.contrast
+          .map((p) => `- ${beschrijf(p)}`)
+          .join("\n")}`
+      : "Gemeten contrast: geen problemen gevonden.",
   ]
     .filter(Boolean)
     .join("\n\n");

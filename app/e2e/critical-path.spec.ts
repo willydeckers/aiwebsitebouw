@@ -224,7 +224,7 @@ test("de modelkeuze van een lead wordt bewaard", async ({ page }) => {
 
   // De modelkeuze staat bij de instellingen die je één keer zet, niet bij de
   // dingen waarvoor je het paneel dagelijks opent — dus eerst uitklappen.
-  await page.getByRole("button", { name: "Instellingen tonen" }).click();
+  await page.getByRole("button", { name: /Bedrijfsgegevens & AI-model/ }).click();
 
   const keuze = page.getByLabel("AI-model voor deze lead");
   await expect(keuze).toHaveValue("claude-opus-4-8");
@@ -274,8 +274,14 @@ test("pakket, betaalstatus en wijzigingenteller van een klant zijn zichtbaar en 
   await expect(page.getByRole("heading", { name: naam })).toBeVisible();
 
   await page.getByRole("button", { name: /Pakket & domein/ }).click();
-  await expect(page.getByText("Bundel 2")).toBeVisible();
+  const pakket = page.getByLabel("Pakket", { exact: true });
+  await expect(pakket).toHaveValue("bundel_2");
   await expect(page.getByText(/2 van 3/)).toBeVisible();
+
+  // Van bundel wisselen kon na het promoveren nergens. Een andere bundel vult
+  // het aantal inbegrepen wijzigingen met de standaard van die bundel in.
+  await pakket.selectOption("bundel_3");
+  await expect(page.getByLabel(/Wijzigingen inbegrepen/)).toHaveValue("10");
 
   await page.getByLabel("Betaalstatus").selectOption("gefactureerd");
   await page.getByRole("button", { name: "Bewaren" }).click();
@@ -283,10 +289,71 @@ test("pakket, betaalstatus en wijzigingenteller van een klant zijn zichtbaar en 
   await expect
     .poll(
       async () => {
-        const { data } = await admin.from("klanten").select("betaalstatus").eq("id", klant!.id).single();
-        return data?.betaalstatus;
+        const { data } = await admin
+          .from("klanten")
+          .select("betaalstatus, pakket_type, wijzigingen_inbegrepen")
+          .eq("id", klant!.id)
+          .single();
+        return data;
       },
       { timeout: 10_000 },
     )
-    .toBe("gefactureerd");
+    .toEqual({ betaalstatus: "gefactureerd", pakket_type: "bundel_3", wijzigingen_inbegrepen: 10 });
+});
+
+test("de werkruimte opent over het leadpaneel en Escape sluit enkel de werkruimte", async ({ page }) => {
+  // De werkruimte is een portal naar <body>. Twee dingen die daarbij stil fout
+  // kunnen gaan en op een screenshot niet opvallen: een klik erin bubbelt door
+  // de React-boom naar de achtergrond van het paneel (die dan sluit), en
+  // Escape sluit ook het paneel eronder.
+  const admin = adminClient();
+  const naam = `${TEST_PREFIX}werkruimte ${Date.now()}`;
+
+  await admin.from("leads").insert({ bedrijfsnaam: naam, sector: "Bakkerij", herkomst: "manueel" });
+
+  await page.goto("/leads");
+  await page.getByRole("row", { name: new RegExp(naam) }).click();
+  await page.getByRole("button", { name: /Open werkruimte/ }).click();
+
+  const werkruimte = page.getByRole("dialog", { name: "Werkruimte" });
+  await expect(werkruimte.getByRole("heading", { name: naam })).toBeVisible();
+
+  // Zonder versie wordt je bericht de briefing; van hergenereren is dan nog
+  // geen sprake.
+  await expect(werkruimte.getByRole("button", { name: "Eerste versie genereren" })).toBeVisible();
+  await expect(werkruimte.getByText("Hele site opnieuw genereren…")).toHaveCount(0);
+
+  // Een klik in de werkruimte mag het paneel eronder niet sluiten.
+  await werkruimte.getByRole("button", { name: /Notities \/ briefing/ }).click();
+  await expect(werkruimte).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(werkruimte).toBeHidden();
+  // Het paneel staat er nog.
+  await expect(page.getByRole("heading", { name: naam })).toBeVisible();
+});
+
+test("het klantenscherm toont ook wat vroeger enkel in het leadpaneel stond", async ({ page }) => {
+  const admin = adminClient();
+  const naam = `${TEST_PREFIX}klantscherm ${Date.now()}`;
+
+  const { data: lead } = await admin
+    .from("leads")
+    .insert({ bedrijfsnaam: naam, sector: "Kapsalon", herkomst: "manueel", klant_type: "statisch", notities: "Open op zondag." })
+    .select("id")
+    .single();
+  const { data: klant } = await admin
+    .from("klanten")
+    .insert({ lead_id: lead!.id, type: "statisch", pakket_type: "bundel_1", wijzigingen_inbegrepen: 0 })
+    .select("id")
+    .single();
+
+  await page.goto(`/klanten?klant=${klant!.id}`);
+  await expect(page.getByRole("heading", { name: naam })).toBeVisible({ timeout: 15_000 });
+
+  // Het pakketblok staat hier standaard open: daarvoor kom je bij een klant.
+  await expect(page.getByLabel("Pakket", { exact: true })).toHaveValue("bundel_1");
+  await expect(page.getByRole("button", { name: /Notities \/ briefing/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Bedrijfsgegevens & AI-model/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Site-interactie/ })).toBeVisible();
 });

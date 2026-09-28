@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { takeScreenshot } from "../shared/screenshot.js";
+import { takeScreenshot, takeScreenshotMetContrast } from "../shared/screenshot.js";
+import { leesVers } from "../shared/opslag.js";
+import { HARDE_GRENS, beoordeel, beschrijf, type ContrastProbleem } from "../shared/contrast.js";
 import { reviewDemo, type ReviewScreenshot } from "./review.js";
 import { regenerateWithFeedback } from "./generate-demo.js";
 import { uploadSite } from "./generate-job.js";
@@ -64,27 +66,27 @@ export async function processReviewJob(supabase: SupabaseClient, jobId: string, 
     // stored objects as renderable text/html, signed or not).
     const paginaHtml: { pagina: PaginaMeta; html: string }[] = [];
     for (const pagina of teBekijken) {
-      const { data: fileBlob, error: downloadError } = await supabase.storage
-        .from("demos")
-        .download(padVan(pagina.bestand));
-      if (downloadError || !fileBlob) {
-        throw new Error(`Kon ${pagina.bestand} niet downloaden: ${downloadError?.message}`);
-      }
+      // Vers gelezen: na een hergeneratie in dezelfde map gaf download() via
+      // de CDN nog de vorige iteratie terug, en beoordeelde de reviewer dus
+      // de site die hij net had afgekeurd. Zie shared/opslag.ts.
+      const html = await leesVers(supabase, padVan(pagina.bestand));
+      if (html === null) throw new Error(`Kon ${pagina.bestand} niet ophalen.`);
       // Inline the lead's own images: setContent() gives the page no origin,
       // so a relative "bestanden/..." src would render as a broken image and
       // the reviewer would reject a site that is actually fine.
-      paginaHtml.push({ pagina, html: vervangBestandsverwijzingen(await fileBlob.text(), beelden) });
+      paginaHtml.push({ pagina, html: vervangBestandsverwijzingen(html, beelden) });
     }
 
     // Sequential, not Promise.all: this now launches a browser per page
     // rather than two total, and Chromium's launch is already the flakiest
     // thing in this worker under load (see screenshot.ts).
+    // Desktop meet meteen het contrast mee, op dezelfde geladen pagina.
     const screenshots: ReviewScreenshot[] = [];
+    const contrast: ContrastProbleem[] = [];
     for (const { pagina, html } of paginaHtml) {
-      screenshots.push({
-        label: `Desktop — ${pagina.titel} (${pagina.bestand})`,
-        png: await takeScreenshot(html, { width: 1280, height: 800 }),
-      });
+      const { png, contrast: metingen } = await takeScreenshotMetContrast(html, { width: 1280, height: 800 });
+      screenshots.push({ label: `Desktop — ${pagina.titel} (${pagina.bestand})`, png });
+      contrast.push(...beoordeel(pagina.bestand, metingen));
     }
     screenshots.push({
       label: `Mobiel — ${paginaHtml[0].pagina.titel} (${paginaHtml[0].pagina.bestand})`,
@@ -98,9 +100,21 @@ export async function processReviewJob(supabase: SupabaseClient, jobId: string, 
         sector: lead.sector,
         researchSamenvatting: lead.research_samenvatting,
         aiModel: lead.ai_model,
+        contrast,
       },
       stijlvoorkeuren ?? [],
     );
+
+    // Gemeten, dus niet onderhandelbaar: onder de harde grens keurt de code
+    // af, ook als het model het op de screenshot niet zag — dat was precies
+    // het probleem.
+    const hardeContrast = contrast.filter((p) => p.verhouding < HARDE_GRENS);
+    if (hardeContrast.length && result.goedgekeurd) {
+      result.goedgekeurd = false;
+      result.feedback =
+        `${result.feedback}\n\nAfgekeurd op gemeten contrast: lichte tekst op een lichte achtergrond ` +
+        "(of donker op donker) die op de screenshot niet opviel.";
+    }
 
     await supabase.rpc("record_project_kost_if_under_budget", {
       p_lead_id: leadId,
@@ -150,6 +164,11 @@ export async function processReviewJob(supabase: SupabaseClient, jobId: string, 
       result.feedback,
       result.mist.length ? `Ontbreekt: ${result.mist.join("; ")}` : null,
       result.klopt_niet.length ? `Klopt niet: ${result.klopt_niet.join("; ")}` : null,
+      contrast.length
+        ? "Gemeten contrastproblemen — maak deze tekst donkerder of de achtergrond donkerder (lichte " +
+          "tekst hoort enkel op een donker vlak), of markeer echt decoratieve tekst met aria-hidden=\"true\":\n" +
+          contrast.map((p) => `- ${beschrijf(p)}`).join("\n")
+        : null,
     ]
       .filter(Boolean)
       .join("\n");

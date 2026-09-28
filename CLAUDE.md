@@ -40,7 +40,8 @@ deployment, live-credential verification, and a couple of deliberately-external 
   `sourcing-run`, `track-and-serve`, `cleanup-storage`, `gmail-oauth-exchange`) show
   `ACTIVE` on the linked project, with `ANTHROPIC_API_KEY` and the rest of the secrets
   table set. **Twee staan er nog niet op**: `lees-afbeelding` en (sinds 02/09)
-  `domein-koppelen`. `track-and-serve` draait live ook nog in zijn oude vorm — zie de
+  `domein-koppelen`. **`chat-edit-static` is sinds 27/09 lokaal gewijzigd en niet gedeployed**
+  (zie die sectie). `track-and-serve` draait live ook nog in zijn oude vorm — zie de
   sectie van 2026-09-02 voor het deploy-commando en waarom dat bewust wacht.
 - **`.env.local`**: `NEXT_PUBLIC_SUPABASE_URL`/`NEXT_PUBLIC_SUPABASE_ANON_KEY`/
   `ANTHROPIC_API_KEY` set locally. **`NEXT_PUBLIC_DEMO_HOSTING_URL` staat er niét (meer) in** —
@@ -1520,6 +1521,155 @@ vóór die toevoeging; `privacybeleid.html` staat dus nog niet in hun map en gee
 - **Geen echte chat-bewerking gedraaid**: dat kost een modelaanroep en raakt een levende site.
 - ~~De Edge Functions van vandaag staan nog niet live~~ — gedeployed, zie hierboven.
 
+## 2026-09-27 — werkruimte, editor-koppeling, verse previews en gemeten contrast
+
+Vijf punten uit gebruik. Wat ze bleken te vragen:
+
+### Chat: aanpassen is de standaard, hergenereren maakt een nieuwe versie
+
+- De schakelaar "Gericht aanpassen / Hele site hergenereren" is weg. Verzenden = gericht
+  aanpassen. Hergenereren zit achter een kleine link onder het invoerveld, met een
+  bevestigingsdialoog ervoor (nieuwe versie, duurt minuten, kost meer).
+- **Hergenereren overschreef het bestaande concept** (zelfde map, zelfde rij), terwijl de chat
+  "levert een nieuwe versie op" beloofde. `generate-job.ts` maakt nu altijd versie max+1; een
+  bestaand concept wordt pas ná een geslaagde upload `afgerond` (de unieke index "max. één
+  concept" blijft zo kloppen). De review-loop itereert nog wél ter plaatse — dat zijn
+  herkansingen van dezelfde poging.
+- **De chat bewerkt de versie die je bekijkt.** `chat-edit-static` aanvaardt `versionId`
+  (gecontroleerd op `lead_id`); zonder valt hij terug op de nieuwste, zodat een oudere app blijft
+  werken. **Moet nog gedeployed worden**, zie onderaan.
+
+### Eén werkruimte voor lead én klant (`leads/site-werkruimte.tsx`)
+
+Het klantenscherm had een werkruimte maar miste de helft; het leadpaneel had alles maar geen
+werkruimte. Nu is het één component: vanuit het leadpaneel als schermvullende overlay ("Open
+werkruimte"), en het klantenscherm ís die component als pagina (`klant-detail-view.tsx` vertaalt
+enkel klant-id → lead-id). Preview links (met **versiekiezer**), chat rechts, en daaronder alles:
+pakket & domein (standaard open), contact, site-interactie, versiegeschiedenis, briefing,
+openstaande vragen, bedrijfsgegevens & AI-model, publieke link, review-log, kosten, Shopify.
+
+- De blokken die beide schermen tonen, zijn eruit gehaald zodat ze niet uit elkaar groeien:
+  `notities-blok.tsx`, `lead-instellingen-blok.tsx`, `publieke-link.tsx`.
+- **Van bundel wisselen kan** (`klant-panel.tsx`): een `<select>` voor `pakket_type`, dat het
+  aantal inbegrepen wijzigingen met de standaard van de nieuwe bundel invult.
+- De overlay gaat via een portal naar `<body>`. Twee valkuilen die daarbij bovenkwamen: een klik
+  in de portal bubbelt door de React-boom naar de achtergrond van het leadpaneel (die dan sluit),
+  en Escape sloot ook het paneel eronder. Kinderlagen (dialogen, volledig scherm) luisteren nu in
+  de capture-fase en stoppen de toets; de werkruimte op `document`.
+- **Twee crashes gevonden door de e2e-test**, allebei dezelfde familie als de chatcrash van 02/09
+  (supabase-js deelt kanalen per naam): `store-aanmaak-panel.tsx` gebruikte een vaste kanaalnaam
+  en crashte zodra de werkruimte het paneel een tweede keer toonde (nu `useId()`); en een kanaal
+  met een binding op een tabel die **niet in de publicatie `supabase_realtime`** staat (`leads`,
+  `klanten`) krijgt op het héle kanaal niets meer binnen. Enkel `jobs`, `site_versions` en
+  `review_log` staan erin. (Ook `chat_berichten` niet — de chat van de ándere gebruiker komt dus
+  pas binnen bij herladen. Niet aangeraakt.)
+
+### De preview in de app bleef de oude site tonen — twee caches
+
+"Op localhost zie ik de aanpassing, in de app niet." Twee oorzaken, allebei gemeten:
+
+1. **De HTTP-cache van de browser/WebView2.** supabase-js uploadt met `Cache-Control:
+   max-age=3600`, en elke bewerking overschrijft dezelfde paden. Node (de worker, localhost) heeft
+   geen HTTP-cache, vandaar het verschil.
+2. **De CDN van Supabase geeft vlak na een overschrijving nog de oude bytes** — een cache-HIT, óók
+   voor een URL met een nieuwe `cacheNonce` (die telt niet mee in de cachesleutel). De invalidatie
+   komt, maar pas na enkele seconden: precies het moment waarop de preview (via Realtime) of een
+   tweede bewerking de inhoud opnieuw leest. **Dit raakte ook de chat zelf**: een tweede
+   chat-edit kort na de eerste las de oude `bron.json`, bouwde daarop verder, en draaide de eerste
+   stil terug. En de review-loop beoordeelde na een hergeneratie de vorige iteratie.
+
+Oplossing: lezen waarvan je de verse inhoud nodig hebt, gaat via een **ondertekende URL** (wordt
+niet gecachet, altijd MISS) + `cache: "no-store"` — `leesVers()` in `app/.../version-actions.ts`,
+`worker/src/shared/opslag.ts` en `supabase/functions/_shared/opslag.ts`. Gebruikt door de preview,
+kopiëren, exporteren, chat-edit, de review-loop, de lokale hosting en de editor-sync. De
+preview-effecten luisteren nu ook naar `laatst_bewerkt_op` (een één-pagina-versie ververste
+voorheen nooit). **`track-and-serve` leest nog via `download()`** — een live site kan na een
+wijziging dus nog even de vorige versie tonen. Niet aangeraakt: er is nog geen eigen domein, dus
+nog geen bezoeker die het ziet; wel de eerste plek om te kijken als dat verandert.
+
+Een eerdere aanname in deze repo klopt daardoor waarschijnlijk niet: `media-ingest.ts` en
+`live-browser.ts` verwijderen een bestand eerst "omdat upsert oude bytes serveerde". Dat was
+vermoedelijk dezelfde CDN, niet de upsert.
+
+### Bewerken in VS Code (`worker/src/editor/`)
+
+"Openen in editor" in de werkruimte zet de **bouwstenen** van de gekozen versie in
+`Documenten\Web Agency sites\<bedrijf>\versie-<n>\` — `_head.html`, `_navigatie.html`,
+`_footer.html`, `_paginas.json` en per pagina de inhoud, exact de bestanden die de AI in chat-edit
+ziet (de mapping `bronNaarBestanden`/`bestandenNaarBron` staat nu gedeeld in `site-builder.ts`) —
+en opent VS Code (anders de Verkenner). Elke bewaring wordt opnieuw gebouwd met hetzelfde pad als
+chat-edit (inclusief seo-blok en analytics) en in Storage gezet; de preview volgt.
+
+- **De live versie wordt nooit rechtstreeks bewerkt**: de app maakt eerst een kopie
+  (`kopieerVersie`), de worker weigert een actieve versie, en een versie die tijdens het bewerken
+  live gezet wordt, koppelt los. Anders stond elke Ctrl+S — ook een halve tussenstand — meteen
+  online.
+- Een bewaring die de site stuk zou maken (dode link, eigen `<script>`…) wordt geweigerd:
+  `_FOUT.txt` in de map + één regel in de chat. Verdwijnt vanzelf zodra het weer klopt.
+- **Driewegsynchronisatie** (`synchronisatie.ts`, puur en getest): een chat-edit op een ander
+  bestand komt in de map terecht zonder je eigen werk te overschrijven; hetzelfde bestand aan
+  beide kanten gewijzigd → de editor wint, met een melding. Witruimte aan de randen telt niet als
+  wijziging (de parser trimt de bouwstenen).
+- Aansturing zonder netwerk of token: de app schrijft een JSON-regel naar de **stdin van de
+  worker** (Tauri-command `site_bewerken`, die pipe bestond al voor de stop-bewaking). Een job-rij
+  zou door een worker op een andere machine opgepikt kunnen worden en VS Code op het verkeerde
+  bureau openen. Buiten de desktop-app: `cd worker && npx tsx --env-file=.env
+  scripts/bewerk-site.ts <lead-id> [versienummer]`.
+- `localhost:4321/{leadId}/v{n}/` toont nu precies versie n — nodig, want de kopie die je bewerkt
+  staat (nog) niet live.
+- Editor-bewaringen tellen niet mee voor `tel_klant_wijziging` (elke Ctrl+S zou de bundel opsouperen).
+- **Oudere sites kunnen niet via de editor (en ook niet via de chat) bewerkt worden** als ze van
+  vóór de widgetregels zijn: Tuinbouw Hendrix v1 heeft een eigen `<script>` in de nav en een
+  `onsubmit`-handler, en `bouwSite` weigert die nu. Dat is geen nieuwe beperking — chat-edit weigert
+  diezelfde site al sinds 27/07 — maar het wordt nu wel zichtbaar. Hergenereren lost het op.
+
+### Contrast in de gegenereerde sites wordt gemeten (`worker/src/shared/contrast.ts`)
+
+De review-AI zag lichte tekst op wit soms wel, soms niet. De browser weet het exact: per stuk
+tekst de kleur en wat er écht onder ligt (`elementsFromPoint`, zodat tekst op een foto met
+overlay niet als "wit op wit" telt — die wordt overgeslagen), WCAG-verhouding in Node.
+
+- **Review-loop**: gemeten problemen gaan als feiten naar de reviewer en in de feedback voor de
+  hergeneratie; onder 3:1 keurt de code altijd af. 3–4.5:1 is een aandachtspunt, geen weigering.
+- **Na elke generatie** (ook vanuit de chat, die niet door de review gaat): een regel in de chat
+  met wat slecht leesbaar is.
+- Promptregels in `generate-demo.ts` en `chat-edit-static`. Decoratieve tekst hoort
+  `aria-hidden="true"` te krijgen; de meting slaat die over.
+- Het script naar de pagina gaat als tekst, niet als functie: tsx/esbuild (`keepNames`) wikkelen
+  benoemde functies in `__name()`, dat in de browser niet bestaat. Gevonden door de browsertest.
+- Proef op echte sites (`scripts/proef-contrast.ts "<naam>"`): Hendrix en Bloemen Gielen enkel
+  randgevallen (3.7–4.2:1), Antwerp Fried Chicken een echte fout: donkerrode prijzen op donkerbruin
+  (2.6:1) op menu.html.
+
+### Geverifieerd
+
+- Worker: typecheck + **95 tests** (44 site-builder, 18 widgets, 7 shopify-mapping, 16
+  editor-sync, 10 contrast — waarvan 5 in een echte Chromium). Deno: 27 tests, `deno check` op
+  chat-edit-static en track-and-serve. App: tsc + eslint schoon. Rust: `cargo check`.
+- **e2e: 9 tests** (2 nieuw: de werkruimte over het leadpaneel incl. Escape, en het klantenscherm
+  met alle blokken; de pakket-test wisselt nu ook van bundel). Alle negen groen, maar niet in één
+  run: na een stuk of zes runs op één middag verliest de laatste test zijn sessie — de bekende
+  flakiness hieronder, geen regressie.
+- **Live, end-to-end tegen het echte project** (tijdelijke testlead met een kopie van Florian, daarna
+  opgeruimd): 16 controles — bouwstenen in de map, bewaring in Storage op elke pagina, seo-blok
+  behouden, preview in de app volgt zonder herladen, dode link → `_FOUT.txt` + chatregel + niets
+  in Storage, herstel → foutbestand weg, wijziging van buitenaf in de map zonder eigen werk te
+  verliezen, na live zetten geen bewaring meer online.
+- De stdin-opdracht van app → worker, met de echte worker (`src/index.ts`): verzoek komt aan, een
+  onleesbare regel wordt gemeld, sluiten stopt de worker nog steeds.
+- Screenshots van de werkruimte (lead) en het klantenscherm (Florian).
+
+### Niet geverifieerd / nog te doen
+
+- **`chat-edit-static` is niet gedeployed** (versionId, verse `bron.json`, contrastregel):
+  `supabase functions deploy chat-edit-static` vanuit de repo-root. Zonder deploy werkt de app wel
+  (versionId wordt genegeerd), maar blijft het terugdraai-risico van hierboven bestaan.
+- **De knop "Openen in editor" is niet in de verpakte app aangeklikt.** De Rust-kant compileert en
+  het worker-deel is live getest, maar de keten app → Tauri → stdin → VS Code vraagt een nieuwe
+  installer: `cd worker && npm run pak-in`, dan `cd app && npm run app:build`.
+- **Geen echte hergeneratie gedraaid** (kost modelgeld): dat die een nieuwe versie maakt en daarna
+  een contrastregel in de chat zet, is enkel door code en typecheck gedekt.
+
 ## Known gaps (deliberate, not oversights)
 
 - **KBO Open Data import script doesn't exist.** `sourcing-run` reads from a
@@ -1545,7 +1695,7 @@ vóór die toevoeging; `privacybeleid.html` staat dus nog niet in hun map en gee
   die moet manueel aangemaakt worden; `chat-edit-shopify` en de rate limiter zijn daardoor nog
   niet tegen een levende winkel gedraaid.
 - ~~**No E2E test exists yet.**~~ Gebouwd op 2026-07-29: `app/e2e/critical-path.spec.ts`,
-  intussen 7 tests, **groen tegen het echte project** (`cd app && npm run e2e`). Dekt: lead verschijnt
+  intussen 9 tests, **groen tegen het echte project** (`cd app && npm run e2e`). Dekt: lead verschijnt
   in de lijst → paneel opent → klik op het geblurde deel sluit → een job die tijdens het kijken
   wordt ingestoken verschijnt via Realtime → een mislukte job toont zijn échte foutmelding
   (regressietest voor de "non-2xx status code"-bug van juli) → Voorkeuren toont de regels die

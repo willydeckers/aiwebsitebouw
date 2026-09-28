@@ -7,10 +7,15 @@ export type PatchEditResult = {
   toegepast: boolean;
 };
 
-export async function startPatchEdit(leadId: string, instruction: string): Promise<PatchEditResult> {
+/** `versionId`: de versie die je bekijkt. Weglaten = de nieuwste, zoals vroeger. */
+export async function startPatchEdit(
+  leadId: string,
+  instruction: string,
+  versionId?: string,
+): Promise<PatchEditResult> {
   const supabase = createClient();
   const { data, error } = await supabase.functions.invoke("chat-edit-static", {
-    body: { leadId, instruction },
+    body: { leadId, instruction, versionId },
   });
 
   if (error) {

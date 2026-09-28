@@ -187,6 +187,85 @@ export function parseSiteBron(raw: string): SiteBron {
   return { paginas, head: inhoud("HEAD") ?? "", nav, footer, bodies };
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// 1a. De bouwstenen als losse bestanden
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Eén bestandsindeling voor twee plekken: de virtuele map die chat-edit aan het
+// model toont, en de map die de editor-sync op schijf zet. Dezelfde definitie,
+// zodat "wat de AI bewerkt" en "wat jij in VS Code bewerkt" letterlijk dezelfde
+// bestanden zijn — en een wijziging uit het ene pad in het andere klopt.
+
+export const BRON_BESTANDEN = {
+  paginas: "_paginas.json",
+  head: "_head.html",
+  nav: "_navigatie.html",
+  footer: "_footer.html",
+} as const;
+
+function inMap(map: string, naam: string): string {
+  return map ? `${map}/${naam}` : naam;
+}
+
+/** De bron van een meerpagina-site als bestandsnaam → inhoud. `map` is een
+ *  voorvoegsel (chat-edit gebruikt "/demo"); leeg voor een echte map op schijf. */
+export function bronNaarBestanden(bron: SiteBron, map = ""): Record<string, string> {
+  const bestanden: Record<string, string> = {
+    [inMap(map, BRON_BESTANDEN.paginas)]: JSON.stringify(bron.paginas, null, 2),
+    [inMap(map, BRON_BESTANDEN.head)]: bron.head,
+    [inMap(map, BRON_BESTANDEN.nav)]: bron.nav,
+    [inMap(map, BRON_BESTANDEN.footer)]: bron.footer,
+  };
+  for (const pagina of bron.paginas) {
+    bestanden[inMap(map, pagina.bestand)] = bron.bodies[pagina.bestand] ?? "";
+  }
+  return bestanden;
+}
+
+/**
+ * Omgekeerd. Gooit SiteBuildError als het geheel niet meer klopt — een pagina
+ * in de lijst zonder bestand, een _paginas.json die geen JSON meer is — zodat
+ * dat als mislukte bewerking terugkomt in plaats van in Storage te belanden.
+ *
+ * Loopt bewust via parseSiteBron: dezelfde parser als de generator, dus één
+ * definitie van wat een geldige site is in plaats van een tweede die afdrijft.
+ */
+export function bestandenNaarBron(bestanden: Record<string, string>, map = ""): SiteBron {
+  const paginasRuw = bestanden[inMap(map, BRON_BESTANDEN.paginas)];
+  if (paginasRuw === undefined) {
+    throw new SiteBuildError(`${BRON_BESTANDEN.paginas} ontbreekt.`);
+  }
+  let paginas: { bestand: string }[];
+  try {
+    paginas = JSON.parse(paginasRuw);
+  } catch (err) {
+    throw new SiteBuildError(
+      `${BRON_BESTANDEN.paginas} is geen geldige JSON meer: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  if (!Array.isArray(paginas)) {
+    throw new SiteBuildError(`${BRON_BESTANDEN.paginas} moet een lijst van pagina's zijn.`);
+  }
+  const secties = [
+    "===META===",
+    JSON.stringify({ paginas }),
+    "===HEAD===",
+    bestanden[inMap(map, BRON_BESTANDEN.head)] ?? "",
+    "===NAV===",
+    bestanden[inMap(map, BRON_BESTANDEN.nav)] ?? "",
+    "===FOOTER===",
+    bestanden[inMap(map, BRON_BESTANDEN.footer)] ?? "",
+  ];
+  for (const pagina of paginas) {
+    const body = bestanden[inMap(map, pagina.bestand)];
+    if (body === undefined) {
+      throw new SiteBuildError(`${pagina.bestand} staat in ${BRON_BESTANDEN.paginas}, maar het bestand ontbreekt.`);
+    }
+    secties.push(`===PAGINA:${pagina.bestand}===`, body);
+  }
+  return parseSiteBron(secties.join("\n"));
+}
+
 /**
  * Ruim genoeg voor een volledige site van 4-6 pagina's in één antwoord.
  * Vereist een STREAMENDE call: de SDK weigert een niet-streamende call die

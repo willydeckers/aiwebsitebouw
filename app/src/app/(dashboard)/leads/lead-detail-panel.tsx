@@ -12,13 +12,11 @@ import {
   type DuurSchattingen,
 } from "@/lib/job-duur";
 import { createClient } from "@/lib/supabase/client";
-import { AI_MODELLEN, STANDAARD_AI_MODEL, type AiModel } from "@/lib/ai-modellen";
-import { updateLeadAiModel, updateLeadGegevens, updateLeadNotities } from "./actions";
 import { StatusBadge } from "./status-badge";
 import { PipelineButton } from "./pipeline-button";
 import { SiteContactPanel } from "./site-contact-panel";
 import { demoBasisUrl } from "@/lib/demo-link";
-import { ChatVenster } from "./chat-venster";
+import { SiteWerkruimte } from "./site-werkruimte";
 import { DemoPreview } from "./demo-preview";
 import { ConvertButton } from "./convert-button";
 import { CostSummaryView } from "./cost-summary-view";
@@ -27,6 +25,8 @@ import { VersionHistory } from "./version-history";
 import { SiteInteractiePanel } from "./site-interactie-panel";
 import { KlantPanel } from "./klant-panel";
 import { StoreAanmaakPanel } from "./store-aanmaak-panel";
+import { NotitiesBlok, OpenVragenBlok } from "./notities-blok";
+import { LeadInstellingenBlok } from "./lead-instellingen-blok";
 
 export function LeadDetailPanel({
   lead,
@@ -37,31 +37,14 @@ export function LeadDetailPanel({
   onChanged: () => void;
   onClose: () => void;
 }) {
-  const [notities, setNotities] = useState(lead.notities ?? "");
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [adres, setAdres] = useState(lead.adres ?? "");
-  const [contactNaam, setContactNaam] = useState(lead.contact_naam ?? "");
-  const [contactEmail, setContactEmail] = useState(lead.contact_email ?? "");
-  const [gegevensError, setGegevensError] = useState<string | null>(null);
-  const [gegevensSaving, setGegevensSaving] = useState(false);
-  const [modelError, setModelError] = useState<string | null>(null);
-  const [modelSaving, setModelSaving] = useState(false);
   const [siteVersions, setSiteVersions] = useState<SiteVersion[]>([]);
   const [reviewLog, setReviewLog] = useState<ReviewLogEntry[]>([]);
   const [costSummary, setCostSummary] = useState<CostSummary | null>(null);
   const [latestJob, setLatestJob] = useState<Job | null>(null);
   const [duurSchattingen, setDuurSchattingen] = useState<DuurSchattingen>({});
-  // Bedrijfsgegevens en modelkeuze zet je één keer en kijk je zelden terug in;
-  // ze stonden altijd open bovenaan, boven de dingen waar je wél voor komt.
-  const [instellingenOpen, setInstellingenOpen] = useState(false);
-  // De twee lappen tekst in dit paneel. Ze stonden altijd volledig open, wat
-  // het paneel lang maakte terwijl je meestal voor de status en de preview
-  // komt. Notities gaan vanzelf open zodra er nog niets staat: dan is het geen
-  // lap tekst maar het veld dat je juist moet invullen.
-  const [chatOpen, setChatOpen] = useState(false);
-  const [notitiesOpen, setNotitiesOpen] = useState(false);
-  const [vragenOpen, setVragenOpen] = useState(false);
+  // De grote werkruimte: de site links, de chat rechts, alles eronder — exact
+  // dezelfde als het klantenscherm, als overlay over dit paneel.
+  const [werkruimteOpen, setWerkruimteOpen] = useState(false);
   // Drives the live elapsed counter on a running job. A plain interval rather
   // than anything cleverer — it only ticks while a job is actually running.
   const [nu, setNu] = useState(() => Date.now());
@@ -150,51 +133,14 @@ export function LeadDetailPanel({
   }, [jobLoopt]);
 
   useEffect(() => {
+    // Staat de werkruimte open, dan is Escape voor haar, niet voor dit paneel.
+    if (werkruimteOpen) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  async function handleBlur() {
-    if (notities === (lead.notities ?? "")) return;
-    setSaving(true);
-    const error = await updateLeadNotities(lead.id, notities);
-    setSaveError(error);
-    setSaving(false);
-    if (!error) onChanged();
-  }
-
-  const gekozenModel =
-    AI_MODELLEN.find((m) => m.id === (lead.ai_model ?? STANDAARD_AI_MODEL)) ?? AI_MODELLEN[0];
-
-  async function handleModelChange(model: AiModel) {
-    setModelSaving(true);
-    const error = await updateLeadAiModel(lead.id, model);
-    setModelError(error);
-    setModelSaving(false);
-    if (!error) onChanged();
-  }
-
-  async function handleGegevensBlur() {
-    if (
-      adres === (lead.adres ?? "") &&
-      contactNaam === (lead.contact_naam ?? "") &&
-      contactEmail === (lead.contact_email ?? "")
-    ) {
-      return;
-    }
-    setGegevensSaving(true);
-    const error = await updateLeadGegevens(lead.id, {
-      adres: adres.trim() || null,
-      contact_naam: contactNaam.trim() || null,
-      contact_email: contactEmail.trim() || null,
-    });
-    setGegevensError(error);
-    setGegevensSaving(false);
-    if (!error) onChanged();
-  }
+  }, [onClose, werkruimteOpen]);
 
   const pipelineIndex = LEAD_PIPELINE.indexOf(lead.status);
   const isSideState = pipelineIndex === -1; // geblokkeerd / budget_overschreden / dood
@@ -365,17 +311,14 @@ export function LeadDetailPanel({
             onChanged={onChanged}
           />
 
-          {/* De chat hing vroeger onder de demo-preview, en die verschijnt pas
-              als er een site is. Bij een verse lead was er dus geen chat, terwijl
-              het paneel wel de indruk gaf dat je er kon praten. Nu staat hij hier
-              en werkt hij ook zonder versie: je bericht is dan de briefing voor
-              de eerste generatie. */}
+          {/* De werkruimte werkt ook zonder versie: je eerste bericht wordt dan
+              de briefing voor de eerste generatie. */}
           <button
             type="button"
-            onClick={() => setChatOpen(true)}
+            onClick={() => setWerkruimteOpen(true)}
             className="w-full rounded-xl border border-blue-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-blue-50"
           >
-            {latestVersion ? "Open chat over deze site" : "Open chat — brief de eerste versie"}
+            {latestVersion ? "Open werkruimte — site en chat naast elkaar" : "Open werkruimte — brief de eerste versie"}
           </button>
         </section>
 
@@ -386,72 +329,16 @@ export function LeadDetailPanel({
             siteVersion={latestVersion}
             reviewLog={reviewLog}
             onChanged={onChanged}
+            onOpenWerkruimte={() => setWerkruimteOpen(true)}
           />
         ) : null}
 
         <VersionHistory leadId={lead.id} versions={siteVersions} onChanged={onChanged} />
 
-        <section className="mt-6 space-y-1">
-          <button
-            type="button"
-            onClick={() => setNotitiesOpen((v) => !v)}
-            className="flex w-full items-center justify-between rounded-xl border border-blue-100 px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-blue-50"
-          >
-            <span>
-              Notities / briefing
-              {notities.trim() ? (
-                <span className="ml-2 text-xs font-normal text-slate-400">
-                  {notities.trim().length} tekens
-                </span>
-              ) : (
-                <span className="ml-2 text-xs font-normal text-amber-700">nog leeg</span>
-              )}
-            </span>
-            <span className="text-xs text-slate-400">
-              {notitiesOpen || !notities.trim() ? "verbergen" : "tonen"}
-            </span>
-          </button>
-
-          {notitiesOpen || !notities.trim() ? (
-            <>
-              <label htmlFor="notities" className="sr-only">
-                Notities / briefing
-              </label>
-              <textarea
-                id="notities"
-                value={notities}
-                onChange={(e) => setNotities(e.target.value)}
-                onBlur={handleBlur}
-                rows={5}
-                placeholder="Wat je over dit bedrijf weet: aanbod, openingsuren, wat ze zelf aanleveren."
-                className="w-full rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
-              />
-              {saving ? (
-                <p className="text-xs text-slate-400">Opslaan...</p>
-              ) : saveError ? (
-                <p className="text-xs text-red-600">{saveError}</p>
-              ) : null}
-            </>
-          ) : null}
-        </section>
-
-        {lead.open_vragen ? (
-          <section className="mt-6 space-y-1 text-sm">
-            <button
-              type="button"
-              onClick={() => setVragenOpen((v) => !v)}
-              className="flex w-full items-center justify-between rounded-xl border border-amber-200 bg-amber-50/60 px-3 py-2 text-left font-medium text-amber-900 hover:bg-amber-50"
-            >
-              <span>Openstaande vragen uit de research</span>
-              <span className="text-xs text-amber-700">{vragenOpen ? "verbergen" : "tonen"}</span>
-            </button>
-            {vragenOpen ? (
-              <p className="whitespace-pre-wrap rounded-xl border border-amber-100 p-3 text-slate-600">
-                {lead.open_vragen}
-              </p>
-            ) : null}
-          </section>
-        ) : null}
+        <div className="mt-6 space-y-3">
+          <NotitiesBlok key={`notities-${lead.id}`} lead={lead} onChanged={onChanged} />
+          <OpenVragenBlok openVragen={lead.open_vragen} />
+        </div>
 
         {/* Alles wat pas speelt zodra er een klant van komt, onder één kop.
             De blokken hieronder houden hun eigen uitklap: hun label draagt een
@@ -485,122 +372,9 @@ export function LeadDetailPanel({
           {costSummary ? <CostSummaryView summary={costSummary} /> : null}
         </section>
 
-        <section className="mt-8 space-y-2 border-t border-slate-100 pt-5 text-sm">
-          <button
-            type="button"
-            onClick={() => setInstellingenOpen((v) => !v)}
-            className="flex w-full items-center justify-between rounded-xl border border-blue-100 px-3 py-2 text-left font-medium text-slate-700 hover:bg-blue-50"
-          >
-            <span>Instellingen</span>
-            <span className="text-xs text-slate-400">{instellingenOpen ? "verbergen" : "tonen"}</span>
-          </button>
-
-          {!instellingenOpen ? null : (
-            <div className="space-y-5 rounded-xl border border-blue-100 p-3">
-              <p className="text-xs text-slate-400">
-                Gegevens en modelkeuze voor deze lead. Je stelt dit meestal één keer in.
-              </p>
-
-              <div className="space-y-2">
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Bedrijfsgegevens
-                </h4>
-
-                <div className="space-y-1">
-                  <label htmlFor="lead-adres" className="text-xs text-slate-500">
-                    Adres
-                  </label>
-                  <input
-                    id="lead-adres"
-                    value={adres}
-                    onChange={(e) => setAdres(e.target.value)}
-                    onBlur={handleGegevensBlur}
-                    placeholder="Geen adres"
-                    className="w-full rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label htmlFor="lead-contact-naam" className="text-xs text-slate-500">
-                    Contactpersoon
-                  </label>
-                  <input
-                    id="lead-contact-naam"
-                    value={contactNaam}
-                    onChange={(e) => setContactNaam(e.target.value)}
-                    onBlur={handleGegevensBlur}
-                    placeholder="Geen contactpersoon"
-                    className="w-full rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label htmlFor="lead-contact-email" className="text-xs text-slate-500">
-                    Contact e-mail
-                    {lead.contact_email_persoonsgebonden ? (
-                      <span className="ml-1 text-amber-600">
-                        (persoonlijk e-mailadres — vraag toestemming voor je het bewaart)
-                      </span>
-                    ) : null}
-                  </label>
-                  <input
-                    id="lead-contact-email"
-                    type="email"
-                    value={contactEmail}
-                    onChange={(e) => setContactEmail(e.target.value)}
-                    onBlur={handleGegevensBlur}
-                    placeholder="Geen contact e-mail"
-                    className="w-full rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
-                  />
-                </div>
-
-                {gegevensSaving ? (
-                  <p className="text-xs text-slate-400">Opslaan...</p>
-                ) : gegevensError ? (
-                  <p className="text-xs text-red-600">{gegevensError}</p>
-                ) : null}
-
-                {lead.herkomst === "sourcing" ? (
-                  <p className="text-xs text-slate-400">Herkomst: automatische sourcing-run</p>
-                ) : null}
-              </div>
-
-              <div className="space-y-2">
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  AI-model
-                </h4>
-
-                <div className="space-y-1">
-                  <select
-                    id="lead-ai-model"
-                    aria-label="AI-model voor deze lead"
-                    value={lead.ai_model ?? STANDAARD_AI_MODEL}
-                    onChange={(e) => handleModelChange(e.target.value as AiModel)}
-                    disabled={modelSaving}
-                    className="w-full rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200 disabled:opacity-60"
-                  >
-                    {AI_MODELLEN.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-slate-500">{gekozenModel.uitleg}</p>
-                </div>
-
-                <p className="text-xs text-slate-400">
-                  Geldt vanaf de volgende pipeline-stap — een al gegenereerde site verandert niet.
-                </p>
-
-                {modelSaving ? (
-                  <p className="text-xs text-slate-400">Opslaan...</p>
-                ) : modelError ? (
-                  <p className="text-xs text-red-600">{modelError}</p>
-                ) : null}
-              </div>
-            </div>
-          )}
-        </section>
+        <div className="mt-8 border-t border-slate-100 pt-5">
+          <LeadInstellingenBlok key={`instellingen-${lead.id}`} lead={lead} onChanged={onChanged} />
+        </div>
 
         <section className="mt-6 border-t border-slate-100 pt-4">
           <DeleteLeadButton
@@ -614,13 +388,16 @@ export function LeadDetailPanel({
         </section>
       </div>
 
-      {chatOpen ? (
-        <ChatVenster
-          lead={lead}
-          siteVersion={latestVersion ?? null}
-          liveVersion={siteVersions.find((v) => v.status === "actief") ?? null}
-          onChanged={onChanged}
-          onClose={() => setChatOpen(false)}
+      {werkruimteOpen ? (
+        <SiteWerkruimte
+          leadId={lead.id}
+          weergave="overlay"
+          onSluiten={() => {
+            setWerkruimteOpen(false);
+            // Wat er in de werkruimte veranderde (notities, status, klant),
+            // hoort ook in de lijst en in dit paneel te staan.
+            onChanged();
+          }}
         />
       ) : null}
     </div>

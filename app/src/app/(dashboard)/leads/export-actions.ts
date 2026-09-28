@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/client";
 import { logAudit } from "@/lib/audit";
 import { maakZip, type ZipInvoer } from "@/lib/zip";
 import type { PaginaMeta, SiteVersion } from "@/lib/types";
+import { leesVers } from "./version-actions";
 
 /**
  * "Aankoop" betekent eigendomsoverdracht: de klant neemt de site mee en wij
@@ -118,8 +119,10 @@ export async function exporteerSite(
     }
 
     const pad = version.paginas?.length ? `${map}/${pagina.bestand}` : referentie;
-    const { data, error } = await supabase.storage.from("demos").download(pad);
-    if (error || !data) return `Kon ${pagina.bestand} niet ophalen: ${error?.message}`;
+    // Vers gelezen: anders kan een export vlak na een aanpassing nog de vorige
+    // inhoud bevatten (zie leesVers in version-actions.ts).
+    const data = await leesVers(pad);
+    if (!data) return `Kon ${pagina.bestand} niet ophalen.`;
 
     const html = ontkoppelEndpoints(schoonSeoVoorExport(await data.text(), leadId, nieuweBasis));
     invoer.push({ naam: pagina.bestand, data: encoder.encode(html) });

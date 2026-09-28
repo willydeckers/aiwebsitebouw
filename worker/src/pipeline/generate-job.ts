@@ -11,7 +11,9 @@ import {
   createAnthropicClient,
   resolveModel,
 } from "../shared/anthropic.js";
-import type { GebouwdePagina, PaginaMeta, SiteBron } from "../shared/site-builder.js";
+import { PRIVACY_BESTAND, type GebouwdePagina, type SiteBron } from "../shared/site-builder.js";
+import { takeScreenshotMetContrast } from "../shared/screenshot.js";
+import { beoordeel, beschrijf, type ContrastProbleem } from "../shared/contrast.js";
 
 const PROMPT_VERSIE = "generatie-v9.1-multipage";
 
@@ -178,48 +180,54 @@ ${b.geextraheerde_tekst}`,
     return;
   }
 
-  // "Eén concept-versie": edit the existing concept in place (same
-  // versienummer) rather than creating a new one, until it's finalized.
-  const versienummer: number = bestaandConcept
-    ? bestaandConcept.versienummer
-    : ((
-        await supabase
-          .from("site_versions")
-          .select("versienummer")
-          .eq("lead_id", leadId)
-          .order("versienummer", { ascending: false })
-          .limit(1)
-          .maybeSingle()
-      ).data?.versienummer ?? 0) + 1;
+  // Every generation is a NEW version (max + 1), never an overwrite.
+  //
+  // This used to regenerate into the existing concept in place — same folder,
+  // same row — while the chat promised "levert een nieuwe versie op". In
+  // practice that meant hergenereren silently threw away the version you were
+  // looking at, including every chat-edit made on it. Regenerating is rare and
+  // expensive; when it happens you want to compare, not lose.
+  //
+  // "Eén concept-versie" (the partial unique index) still holds: a concept that
+  // already exists becomes 'afgerond' — kept, reachable in Versiegeschiedenis,
+  // one click from live — but only AFTER the new site uploaded fine, so a
+  // failed generation never demotes anything. The review loop is different on
+  // purpose: its regenerations are retries of the same attempt and stay in
+  // place (review-job.ts).
+  const { data: laatste } = await supabase
+    .from("site_versions")
+    .select("versienummer")
+    .eq("lead_id", leadId)
+    .order("versienummer", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const versienummer: number = (laatste?.versienummer ?? 0) + 1;
 
   const map = `${leadId}/${versienummer}`;
   await uploadSite(supabase, map, gebouwd, bron);
 
-  // A re-generation into an existing concept folder can produce a different
-  // set of page names; leftovers would otherwise stay served and reachable by
-  // their old URL. Same for a pre-multi-page concept stored as a single file.
-  const oudePaginas = (bestaandConcept?.paginas ?? []) as PaginaMeta[];
-  const verouderd = oudePaginas
-    .filter((p) => !gebouwd.some((g) => g.bestand === p.bestand))
-    .map((p) => `${map}/${p.bestand}`);
-  if (bestaandConcept && !bestaandConcept.paginas && bestaandConcept.content_referentie) {
-    verouderd.push(bestaandConcept.content_referentie);
-  }
-  if (verouderd.length) await supabase.storage.from("demos").remove(verouderd);
-
-  const velden = {
-    content_referentie: `${map}/index.html`,
-    paginas: bron.paginas,
-    prompt_versie: PROMPT_VERSIE,
-  };
-
   if (bestaandConcept) {
-    await supabase.from("site_versions").update(velden).eq("id", bestaandConcept.id);
-  } else {
-    await supabase
+    const { error: afrondFout } = await supabase
       .from("site_versions")
-      .insert({ lead_id: leadId, site_type: "demo", versienummer, status: "concept", ...velden });
+      .update({ status: "afgerond" })
+      .eq("id", bestaandConcept.id);
+    if (afrondFout) throw new Error(`Kon het vorige concept niet afronden: ${afrondFout.message}`);
   }
+
+  const { data: nieuweVersie, error: insertFout } = await supabase
+    .from("site_versions")
+    .insert({
+      lead_id: leadId,
+      site_type: "demo",
+      versienummer,
+      status: "concept",
+      content_referentie: `${map}/index.html`,
+      paginas: bron.paginas,
+      prompt_versie: PROMPT_VERSIE,
+    })
+    .select("id")
+    .single();
+  if (insertFout) throw new Error(`Kon de nieuwe versie niet opslaan: ${insertFout.message}`);
 
   // Only leads this run actually moved to "genereren" get moved on to "klaar".
   //
@@ -230,6 +238,51 @@ ${b.geextraheerde_tekst}`,
   // Antwerp Fried Chicken's second generation.
   if (magStatusVolgen) {
     await supabase.from("leads").update({ status: "klaar" }).eq("id", leadId);
+  }
+
+  await meldContrast(supabase, leadId, nieuweVersie.id, versienummer, gebouwd);
+}
+
+/**
+ * Meet het contrast van de nieuwe versie en zet wat niet leesbaar is in de
+ * chat. Een hergeneratie vanuit de chat gaat niet door de review-loop, dus
+ * zonder dit hoorde je pas van lichte tekst op wit als je het zelf zag.
+ *
+ * Best-effort: een mislukte meting (Chromium is op deze machine wankel) mag een
+ * geslaagde generatie niet alsnog laten mislukken.
+ */
+async function meldContrast(
+  supabase: SupabaseClient,
+  leadId: string,
+  versieId: string,
+  versienummer: number,
+  paginas: GebouwdePagina[],
+) {
+  try {
+    const problemen: ContrastProbleem[] = [];
+    for (const pagina of paginas.filter((p) => p.bestand !== PRIVACY_BESTAND).slice(0, 5)) {
+      const { contrast } = await takeScreenshotMetContrast(pagina.html);
+      problemen.push(...beoordeel(pagina.bestand, contrast));
+    }
+    if (!problemen.length) return;
+
+    const lijst = problemen
+      .sort((a, b) => a.verhouding - b.verhouding)
+      .slice(0, 8)
+      .map((p) => `- ${beschrijf(p)}`)
+      .join("\n");
+    await supabase.from("chat_berichten").insert({
+      lead_id: leadId,
+      rol: "systeem",
+      afzender: null,
+      soort: "regeneratie",
+      site_version_id: versieId,
+      bericht:
+        `Versie ${versienummer}: tekst die slecht leesbaar is (licht op licht of donker op donker), gemeten ` +
+        `in de browser:\n${lijst}\n\nVraag in de chat om die tekst donkerder te maken, of pas het aan in de editor.`,
+    });
+  } catch (err) {
+    console.error(`Contrastmeting na generatie mislukt: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

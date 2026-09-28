@@ -15,6 +15,7 @@ export type KlantChatEditResult = {
 export async function startKlantChatEdit(
   klantId: string,
   instruction: string,
+  versionId?: string,
 ): Promise<KlantChatEditResult> {
   const supabase = createClient();
 
@@ -30,7 +31,9 @@ export async function startKlantChatEdit(
 
   const fn = klant.type === "shopify" ? "chat-edit-shopify" : "chat-edit-static";
   const body =
-    klant.type === "shopify" ? { klantId, instruction } : { leadId: klant.lead_id, instruction };
+    klant.type === "shopify"
+      ? { klantId, instruction }
+      : { leadId: klant.lead_id, instruction, versionId };
 
   const { data, error: invokeError } = await supabase.functions.invoke(fn, { body });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useId, useState, useTransition } from "react";
 import type { Job } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { LiveAutomatiseringView } from "./live-automatisering-view";
@@ -40,6 +40,7 @@ export function StoreAanmaakPanel({
   klantType: "statisch" | "shopify" | null;
   onChanged: () => void;
 }) {
+  const instantieId = useId();
   const [job, setJob] = useState<Job | null>(null);
   const [stappen, setStappen] = useState<AutomatiseringStap[]>([]);
   const [store, setStore] = useState<ShopifyStore | null>(null);
@@ -71,8 +72,12 @@ export function StoreAanmaakPanel({
     // Realtime on jobs is what makes "actie vereist" appear without the user
     // refreshing — which matters here, since the whole point is that someone
     // steps in within seconds.
+    //
+    // Eigen kanaalnaam per instantie: de werkruimte toont dit paneel ook, over
+    // het leadpaneel heen, en supabase-js deelt kanalen per naam — een tweede
+    // .on() na subscribe() gooit en neemt de hele pagina mee (zie use-lead-chat.ts).
     const channel = supabase
-      .channel(`store-aanmaak-${leadId}`)
+      .channel(`store-aanmaak-${leadId}-${instantieId}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "jobs", filter: `lead_id=eq.${leadId}` },
@@ -83,7 +88,7 @@ export function StoreAanmaakPanel({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [leadId]);
+  }, [leadId, instantieId]);
 
   // A paused job polls its own log so new steps show up while someone watches.
   useEffect(() => {

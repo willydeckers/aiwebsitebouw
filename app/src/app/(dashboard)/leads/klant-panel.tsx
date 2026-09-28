@@ -5,9 +5,11 @@ import {
   BETAALSTATUSSEN,
   BUREAU_DOMEIN,
   DOMEIN_TYPES,
+  PAKKETTEN,
   pakketVan,
   type Betaalstatus,
   type DomeinType,
+  type PakketType,
 } from "@/lib/pakketten";
 import type { Klant } from "@/lib/types";
 import { fetchKlant, startNieuwePeriode, updateKlantPakket } from "./convert-actions";
@@ -45,17 +47,25 @@ export function KlantPanel({
   leadId,
   bedrijfsnaam,
   klantType,
+  standaardOpen = false,
+  vernieuw,
 }: {
   leadId: string;
   bedrijfsnaam: string;
   klantType: "statisch" | "shopify" | null;
+  /** In de werkruimte is dit het blok waarvoor je bij een klant komt. */
+  standaardOpen?: boolean;
+  /** Verandert deze waarde, dan wordt de klant opnieuw opgehaald — zodat de
+   *  teller "X van Y" meeloopt na een chat-edit, die hem serverside ophoogt. */
+  vernieuw?: string | null;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(standaardOpen);
   const [klant, setKlant] = useState<Klant | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [melding, setMelding] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  const [pakketType, setPakketType] = useState<PakketType | "">("");
   const [inbegrepen, setInbegrepen] = useState("");
   const [bedrag, setBedrag] = useState("");
   const [betaalstatus, setBetaalstatus] = useState<Betaalstatus | "">("");
@@ -66,6 +76,7 @@ export function KlantPanel({
 
   function vul(k: Klant | null) {
     setKlant(k);
+    setPakketType(k?.pakket_type ?? "");
     setInbegrepen(k?.wijzigingen_inbegrepen == null ? "" : String(k.wijzigingen_inbegrepen));
     setBedrag(k?.deal_bedrag == null ? "" : String(k.deal_bedrag));
     setBetaalstatus(k?.betaalstatus ?? "");
@@ -81,7 +92,7 @@ export function KlantPanel({
   useEffect(() => {
     if (open) herlaad();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, leadId]);
+  }, [open, leadId, vernieuw]);
 
   function doe(actie: () => Promise<string | null>) {
     setError(null);
@@ -95,7 +106,9 @@ export function KlantPanel({
 
   if (!klantType) return null;
 
-  const pakket = pakketVan(klant?.pakket_type);
+  // Wat er op het scherm staat, ook vóór Bewaren — anders toont het blok nog de
+  // oude bundel terwijl je net een andere koos.
+  const pakket = pakketVan(pakketType || klant?.pakket_type);
   const gebruikt = klant?.wijzigingen_gebruikt_periode ?? 0;
   const limiet = klant?.wijzigingen_inbegrepen;
   const overschreden = limiet != null && gebruikt > limiet;
@@ -139,10 +152,34 @@ export function KlantPanel({
                   Pakket &amp; verkoop
                 </h4>
 
-                <p className="text-slate-800">
-                  {pakket ? pakket.label : "Geen pakket vastgelegd"}
-                  {pakket ? <span className="ml-2 text-xs text-slate-500">{pakket.korte_uitleg}</span> : null}
-                </p>
+                <label className="block space-y-1">
+                  <span className="text-xs text-slate-500">Pakket</span>
+                  <select
+                    aria-label="Pakket"
+                    value={pakketType}
+                    onChange={(e) => {
+                      const nieuw = e.target.value as PakketType | "";
+                      setPakketType(nieuw);
+                      // Een andere bundel heeft een ander aantal wijzigingen. Vul
+                      // de standaard in; wie iets anders afsprak, past het aan
+                      // vóór Bewaren.
+                      const standaard = pakketVan(nieuw)?.wijzigingenPerPeriode;
+                      setInbegrepen(standaard == null ? "" : String(standaard));
+                    }}
+                    className={veld}
+                  >
+                    {!klant.pakket_type ? <option value="">Geen pakket vastgelegd</option> : null}
+                    {PAKKETTEN.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                  {pakket ? <span className="block text-xs text-slate-500">{pakket.korte_uitleg}</span> : null}
+                  {pakketType && pakketType !== klant.pakket_type ? (
+                    <span className="block text-xs text-amber-700">Nog niet bewaard.</span>
+                  ) : null}
+                </label>
 
                 {pakket?.hosting ? (
                   <p className="text-xs text-slate-600">
@@ -218,6 +255,7 @@ export function KlantPanel({
                           return "Het bedrag moet een getal zijn, bv. 1250 of 1250.00.";
                         }
                         return updateKlantPakket(klant.id, {
+                          ...(pakketType ? { pakket_type: pakketType } : {}),
                           wijzigingen_inbegrepen: getal ? Number(getal) : null,
                           deal_bedrag: bedragRuw ? Number(bedragRuw) : null,
                           betaalstatus: betaalstatus || null,

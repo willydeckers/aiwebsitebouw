@@ -37,13 +37,17 @@ export function demoLink(leadId: string): string | null {
  * *.supabase.co komt ze als platte tekst binnen (zie hieronder). De worker
  * serveert dezelfde bestanden uit Storage zonder gateway ertussen, dus met de
  * juiste Content-Type. Werkt zolang de worker draait, en enkel op deze machine.
+ *
+ * Zonder `versienummer` serveert de worker de actieve versie (of de nieuwste).
+ * Mét nummer precies die versie — nodig zodra je een kopie bewerkt die (nog)
+ * niet live staat.
  */
-export function lokaleLink(leadId: string): string {
+export function lokaleLink(leadId: string, versienummer?: number): string {
   const basis = (process.env.NEXT_PUBLIC_LOKALE_HOSTING_URL ?? "http://localhost:4321").replace(
     /\/$/,
     "",
   );
-  return `${basis}/${leadId}/`;
+  return versienummer == null ? `${basis}/${leadId}/` : `${basis}/${leadId}/v${versienummer}/`;
 }
 
 /**

@@ -1,4 +1,5 @@
 import { chromium, type Browser } from "playwright";
+import { meetContrast, type RuweMeting } from "./contrast.js";
 
 // PNG dimensions live at a fixed offset: 8-byte signature, then the IHDR
 // chunk's 4-byte length + 4-byte type, then 4-byte width, 4-byte height.
@@ -89,6 +90,20 @@ export async function takeScreenshot(
   html: string,
   viewport: { width: number; height: number } = { width: 1280, height: 800 },
 ): Promise<Buffer> {
+  return (await takeScreenshotMetContrast(html, viewport, { metContrast: false })).png;
+}
+
+/**
+ * Zelfde screenshot, en op dezelfde geladen pagina ook de contrastmeting (zie
+ * contrast.ts) — geen tweede Chromium-start, die op deze machine al het
+ * wankelste onderdeel van de worker is. Een mislukte meting geeft een lege
+ * lijst: ze mag een review nooit zelf laten vastlopen.
+ */
+export async function takeScreenshotMetContrast(
+  html: string,
+  viewport: { width: number; height: number } = { width: 1280, height: 800 },
+  { metContrast = true }: { metContrast?: boolean } = {},
+): Promise<{ png: Buffer; contrast: RuweMeting[] }> {
   const browser = await launchWithRetry();
   try {
     const page = await browser.newPage({ viewport });
@@ -150,11 +165,19 @@ export async function takeScreenshot(
     // version for "can't verify the rest of the page", regardless of
     // whether the rest of the page is actually fine.
     const shot = await page.screenshot({ fullPage: true });
+    // Na de screenshot: dan zijn de reveal-animaties door de scrollpas
+    // hierboven al afgegaan, en ziet de meting wat een bezoeker ziet.
+    const contrast = metContrast
+      ? await meetContrast(page).catch((err) => {
+          console.error(`Contrastmeting mislukt: ${err instanceof Error ? err.message : String(err)}`);
+          return [] as RuweMeting[];
+        })
+      : [];
     await page.close();
 
     // Target well below the API's hard 8000px cap, not just-under-it —
     // deliberate headroom given how this class of bug keeps resurfacing.
-    return await resizePng(browser, shot, 6000);
+    return { png: await resizePng(browser, shot, 6000), contrast };
   } finally {
     await browser.close();
   }

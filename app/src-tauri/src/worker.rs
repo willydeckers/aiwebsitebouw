@@ -202,8 +202,16 @@ pub fn start(app: &AppHandle, proces: &WorkerProces) -> Result<(), String> {
 
     // Opt in to the stdin watchdog. The worker only honours it when asked,
     // because every other way of starting it (a terminal, a script) hands it a
-    // stdin that is already at EOF.
+    // stdin that is already at EOF. The same pipe carries requests from the
+    // app, one JSON line each (see site_bewerken below).
     commando.env("WORKER_STOP_BIJ_GESLOTEN_INVOER", "1");
+
+    // Where "Openen in editor" puts a site version's files. Resolved here
+    // rather than guessed in Node: Tauri knows the real Documents folder, also
+    // when Windows has it redirected to OneDrive.
+    if let Ok(documenten) = app.path().document_dir() {
+        commando.env("WORKER_BEWERK_MAP", gewoon_pad(documenten.join("Web Agency sites")));
+    }
 
     for (naam, waarde) in config.omgeving() {
         if waarde.is_empty() {
@@ -247,6 +255,51 @@ fn draait(proces: &WorkerProces) -> bool {
         Some(kind) => matches!(kind.try_wait(), Ok(None)),
         None => false,
     }
+}
+
+// ── Requests from the app to the worker ─────────────────────────────────
+
+#[derive(Serialize)]
+struct BewerkOpdracht<'a> {
+    opdracht: &'static str,
+    #[serde(rename = "versieId")]
+    versie_id: &'a str,
+    email: Option<&'a str>,
+}
+
+/// Opens a site version in the user's editor: the worker mirrors its files to
+/// a folder, watches it, and syncs every save back.
+///
+/// Over the worker's stdin rather than a port or a job row. A port needs a
+/// token so no web page can poke it; a job row can be claimed by a worker on
+/// another machine, which would open VS Code on the wrong desk. The pipe
+/// reaches exactly the worker this app started, on this machine.
+#[tauri::command]
+pub fn site_bewerken(
+    proces: State<'_, WorkerProces>,
+    versie_id: String,
+    email: Option<String>,
+) -> Result<(), String> {
+    let mut vak = proces.0.lock().unwrap();
+    let niet_actief = || "De worker draait niet. Start hem bij Voorkeuren → Worker.".to_string();
+    let kind = vak.as_mut().ok_or_else(niet_actief)?;
+    if !matches!(kind.try_wait(), Ok(None)) {
+        return Err(niet_actief());
+    }
+    let invoer = kind
+        .stdin
+        .as_mut()
+        .ok_or_else(|| "Geen verbinding met de worker.".to_string())?;
+
+    let regel = serde_json::to_string(&BewerkOpdracht {
+        opdracht: "bewerk",
+        versie_id: &versie_id,
+        email: email.as_deref(),
+    })
+    .map_err(|e| e.to_string())?;
+    writeln!(invoer, "{regel}").map_err(|e| format!("Kon de worker niet bereiken: {e}"))?;
+    invoer.flush().map_err(|e| format!("Kon de worker niet bereiken: {e}"))?;
+    Ok(())
 }
 
 // ── Commands the settings screen calls ──────────────────────────────────

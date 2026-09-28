@@ -73,3 +73,19 @@ export async function leesWorkerLog(): Promise<string> {
   if (!isDesktopApp()) return "";
   return roep<string>("worker_log");
 }
+
+/**
+ * Opens a site version in the user's editor (VS Code, else Explorer).
+ *
+ * The worker does the actual work — mirroring the version's building blocks to
+ * a local folder, watching it, and rebuilding + uploading on every save — so
+ * this only hands it the request. Over the worker's stdin, via Rust: no port,
+ * no token, and the folder is guaranteed to open on THIS machine rather than
+ * on whichever machine's worker happens to claim a job first.
+ *
+ * Resolves once the request is delivered. What happened next shows up in the
+ * site's chat as a system message (folder path, or why it didn't work).
+ */
+export async function openInEditor(versieId: string, email: string | null): Promise<void> {
+  await roep<void>("site_bewerken", { versieId, email });
+}

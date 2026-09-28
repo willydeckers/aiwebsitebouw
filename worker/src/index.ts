@@ -1,4 +1,6 @@
+import { createInterface } from "node:readline";
 import { createWorkerClient } from "./shared/supabase.js";
+import { startBewerking } from "./editor/lokale-bewerking.js";
 import { controleerOmgeving } from "./shared/omgeving.js";
 import { laadInstellingen } from "./shared/instellingen.js";
 import { lokaleHostingUrl, startLokaleHosting } from "./hosting/lokale-server.js";
@@ -206,14 +208,19 @@ setInterval(() => {
 }, HARTSLAG_MS);
 
 /**
- * Stops when whoever started us goes away.
+ * The pipe to the desktop app: requests come in over it, and when it closes,
+ * the worker stops.
  *
- * The desktop app runs this process itself, hidden, and pipes stdin to it. If
- * the app is killed rather than closed cleanly, that pipe closes and this
- * fires -- without it the worker would keep running invisibly, and a second one
- * would start next launch. Two workers racing for the same jobs is a bug this
- * project has already had once, and it is far harder to spot when neither has
- * a window.
+ * Stopping: the desktop app runs this process itself, hidden, and pipes stdin
+ * to it. If the app is killed rather than closed cleanly, that pipe closes and
+ * this fires -- without it the worker would keep running invisibly, and a
+ * second one would start next launch. Two workers racing for the same jobs is
+ * a bug this project has already had once, and it is far harder to spot when
+ * neither has a window.
+ *
+ * Requests: one JSON object per line. Today only "bewerk" (open a site version
+ * in the editor, see editor/lokale-bewerking.ts). Over this pipe rather than a
+ * port so nothing but the app that started us can ask.
  *
  * Only when the parent explicitly asks for it. Inferring it from stdin not
  * being a TTY looks reasonable and is wrong: any background start -- a shell
@@ -221,13 +228,30 @@ setInterval(() => {
  * immediately and the worker would quit a second after starting. Observed,
  * not theorised.
  */
-function stopBijGeslotenInvoer() {
+function luisterNaarApp() {
   if (process.env.WORKER_STOP_BIJ_GESLOTEN_INVOER !== "1") return;
-  process.stdin.on("end", () => {
+  const regels = createInterface({ input: process.stdin });
+  regels.on("line", (regel) => {
+    if (!regel.trim()) return;
+    let opdracht: { opdracht?: string; versieId?: string; email?: string | null };
+    try {
+      opdracht = JSON.parse(regel);
+    } catch {
+      console.error(`Onleesbare opdracht van de app: ${regel.slice(0, 200)}`);
+      return;
+    }
+    if (opdracht.opdracht === "bewerk" && opdracht.versieId) {
+      startBewerking({ versieId: opdracht.versieId, email: opdracht.email ?? null }).catch((err) =>
+        console.error(`Openen in de editor mislukt: ${err instanceof Error ? err.message : String(err)}`),
+      );
+    } else {
+      console.error(`Onbekende opdracht van de app: ${opdracht.opdracht ?? "(geen)"}`);
+    }
+  });
+  regels.on("close", () => {
     console.log("Invoerkanaal gesloten — de app is gestopt, dus deze worker stopt ook.");
     process.exit(0);
   });
-  process.stdin.resume();
 }
 
 /**
@@ -264,7 +288,7 @@ async function start() {
     process.exit(1);
   }
 
-  stopBijGeslotenInvoer();
+  luisterNaarApp();
 
   void supabase
     .from("worker_status")

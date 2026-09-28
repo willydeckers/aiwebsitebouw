@@ -148,6 +148,9 @@ export async function convertToKlant(
 export async function updateKlantPakket(
   klantId: string,
   velden: {
+    /** Een klant van bundel wisselen kon nergens na het promoveren — een
+     *  afspraak die verandert, hoort geen nieuwe klant te vragen. */
+    pakket_type?: PakketType;
     wijzigingen_inbegrepen: number | null;
     deal_bedrag: number | null;
     betaalstatus: Betaalstatus | null;
@@ -174,6 +177,14 @@ export async function startNieuwePeriode(klantId: string) {
 
 export async function fetchKlant(leadId: string): Promise<Klant | null> {
   const supabase = createClient();
-  const { data } = await supabase.from("klanten").select("*").eq("lead_id", leadId).maybeSingle();
+  // limit(1): klanten.lead_id is niet uniek in het schema. Twee rijen zijn een
+  // fout, maar maybeSingle() zou daarop gewoon niets tonen in plaats van één.
+  const { data } = await supabase
+    .from("klanten")
+    .select("*")
+    .eq("lead_id", leadId)
+    .order("id")
+    .limit(1)
+    .maybeSingle();
   return (data as Klant) ?? null;
 }

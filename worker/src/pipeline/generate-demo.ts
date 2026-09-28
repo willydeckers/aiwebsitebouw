@@ -58,7 +58,15 @@ ${bouwImageBankPrompt(sector, briefing)}
 Gebruik de meegegeven sectorstijl-richtlijn als leidraad voor kleuren/typografie/lay-out — verzin
 geen eigen, afwijkend design. Gebruik de stijlvoorkeuren en sectorkennis hieronder als harde
 regels, niet als suggesties. Vertrouw research-feiten en klantnotities; verzin zelf geen
-bedrijfsinformatie die niet is meegegeven.`;
+bedrijfsinformatie die niet is meegegeven.
+
+Leesbaarheid is een harde regel, en de code meet ze na: zet nooit lichte tekst op een licht vlak of
+donkere tekst op een donker vlak. Op wit of een lichte achtergrond (bg-white, bg-*-50 t/m bg-*-200,
+een lichte eigen kleur) is tekst minstens *-700, ook voor bijschriften, footertekst en kleine
+labels — geen *-300 of *-400 op wit. Witte of lichte tekst hoort enkel op een donker vlak, of op een
+foto met een donkere overlay erover. Een lichte of pastel merkkleur gebruik je voor vlakken,
+randen en accenten, niet als tekstkleur op wit. Tekst die puur decoratief is (een groot "01" op
+de achtergrond) krijgt aria-hidden="true".`;
 
 export type GenerateUsage = { model: string; tokensIn: number; tokensOut: number };
 
@@ -80,7 +88,7 @@ export type GenerateResult = { bron: SiteBron; paginas: GebouwdePagina[]; usage:
  * DEMO_HOSTING_URL blijven die tags weg in plaats van half ingevuld te zijn.
  * Een eigen logo is het beste deelbeeld; anders een passende bankfoto.
  */
-function bouwSeoGegevens(lead: Lead, bestanden: string[]): SeoGegevens | undefined {
+export function bouwSeoGegevens(lead: Lead, bestanden: string[]): SeoGegevens | undefined {
   const hostingBase = (process.env.DEMO_HOSTING_URL ?? "").replace(/\/$/, "");
   if (!hostingBase) return undefined;
 
@@ -109,7 +117,7 @@ function bouwSeoGegevens(lead: Lead, bestanden: string[]): SeoGegevens | undefin
  * dus ook geen cookiemelding — precies dezelfde alles-of-niets-lijn als bij
  * DEMO_HOSTING_URL hierboven.
  */
-function bouwAnalyticsGegevens(): AnalyticsGegevens | undefined {
+export function bouwAnalyticsGegevens(): AnalyticsGegevens | undefined {
   const scriptUrl = (process.env.ANALYTICS_SCRIPT_URL ?? "").trim();
   return scriptUrl ? { scriptUrl } : undefined;
 }

@@ -7,13 +7,18 @@ import {
   createAnthropicClient,
   resolveModel,
 } from "../_shared/anthropic.ts";
+// bronNaarBestanden/bestandenNaarBron zijn gedeeld met de editor-sync van de
+// worker: wat het model hier bewerkt, zijn exact dezelfde bestanden als wat
+// iemand in VS Code opent.
 import {
   SiteBuildError,
+  bestandenNaarBron,
   bouwSite,
-  parseSiteBron,
+  bronNaarBestanden,
   type SiteBron,
 } from "../_shared/site-builder.ts";
 import { bouwSeoGegevens } from "../_shared/site-seo.ts";
+import { leesVers } from "../_shared/opslag.ts";
 
 const PROMPT_VERSIE = "chat-edit-static-v9.1-multipage";
 const VIRTUAL_DIR = "/demo";
@@ -28,6 +33,16 @@ generieke, klant-onafhankelijke formulering (geen bedrijfsnamen, URL's of andere
 details). Is de instructie net specifiek voor déze klant (verwijst naar hun eigen naam, sector,
 website of content) — roep dit dan NIET aan; zulke instructies horen niet thuis in de stijl van
 andere klanten.`;
+
+// Lichte tekst op een lichte achtergrond was de meest gemelde fout in de
+// gegenereerde sites, en een kleurwijziging via de chat is precies het moment
+// waarop hij insluipt ("maak de titels in de merkkleur" met een pastelkleur).
+const CONTRAST_REGEL = `Contrast: zet nooit lichte tekst op een licht vlak of donkere tekst op een donker
+vlak. Op wit of een lichte achtergrond (bg-white, bg-*-50 t/m bg-*-200) is tekst minstens *-700
+of een even donkere eigen kleur; witte of lichte tekst hoort enkel op een donker vlak of op een
+foto met een donkere overlay. Een lichte merkkleur gebruik je voor vlakken, randen en accenten,
+niet als tekstkleur op wit. Controleer dit ook voor de tekst die je NIET aanraakt maar waarvan je
+de achtergrond wijzigt.`;
 
 // Multi-page versions are edited through their *source parts* (the bron.json
 // generatie wrote next to the pages), not through the assembled files. That's
@@ -57,6 +72,8 @@ Harde regels: interne links zijn altijd relatief (href="over-ons.html"), elke pa
 _paginas.json moet in de navigatie staan, en er mag geen link zijn naar een bestand dat niet in
 _paginas.json staat. Zet zelf nooit aria-current — de code markeert de actieve pagina.
 
+${CONTRAST_REGEL}
+
 ${ONTHOUD_INSTRUCTIE}`;
 
 // Versions generated before multi-page support are still one standalone HTML
@@ -66,6 +83,8 @@ Je krijgt één bestaand HTML-bestand (op pad ${VIRTUAL_PATH}) en een gerichte i
 Warre of Garen (bv. "die kleur moet anders"). Dit is GEEN nieuwe generatie: herschrijf niet de
 hele pagina. Gebruik uitsluitend str_replace of insert om precies het gevraagde te wijzigen en
 niets anders. Rond af zodra de instructie is doorgevoerd.
+
+${CONTRAST_REGEL}
 
 ${ONTHOUD_INSTRUCTIE}`;
 
@@ -115,66 +134,25 @@ function applyCommand(file: string, input: Record<string, unknown>): string {
   throw new Error(`Onbekend commando: ${command}`);
 }
 
-const PAGINAS_PAD = `${VIRTUAL_DIR}/_paginas.json`;
-const HEAD_PAD = `${VIRTUAL_DIR}/_head.html`;
-const NAV_PAD = `${VIRTUAL_DIR}/_navigatie.html`;
-const FOOTER_PAD = `${VIRTUAL_DIR}/_footer.html`;
-
-/** The parsed source of a multi-page site, exposed as the virtual file tree the
- *  text-editor tool edits. */
-function bronNaarBestanden(bron: SiteBron): Record<string, string> {
-  const bestanden: Record<string, string> = {
-    [PAGINAS_PAD]: JSON.stringify(bron.paginas, null, 2),
-    [HEAD_PAD]: bron.head,
-    [NAV_PAD]: bron.nav,
-    [FOOTER_PAD]: bron.footer,
-  };
-  for (const pagina of bron.paginas) {
-    bestanden[`${VIRTUAL_DIR}/${pagina.bestand}`] = bron.bodies[pagina.bestand] ?? "";
-  }
-  return bestanden;
-}
-
-/** Inverse of bronNaarBestanden. Throws (as SiteBuildError, via parseSiteBron)
- *  when the model's edits left the site inconsistent — a page in the list with
- *  no body file, say — which is reported back as a failed edit rather than
- *  written to Storage. */
-function bestandenNaarBron(bestanden: Record<string, string>): SiteBron {
-  const paginas = JSON.parse(bestanden[PAGINAS_PAD]);
-  const secties = [
-    "===META===",
-    JSON.stringify({ paginas }),
-    "===HEAD===",
-    bestanden[HEAD_PAD] ?? "",
-    "===NAV===",
-    bestanden[NAV_PAD] ?? "",
-    "===FOOTER===",
-    bestanden[FOOTER_PAD] ?? "",
-  ];
-  for (const pagina of paginas as { bestand: string }[]) {
-    secties.push(`===PAGINA:${pagina.bestand}===`, bestanden[`${VIRTUAL_DIR}/${pagina.bestand}`] ?? "");
-  }
-  // Round-tripping through the same parser the generator uses keeps exactly
-  // one definition of what a valid site is, instead of a second, drifting one
-  // here.
-  return parseSiteBron(secties.join("\n"));
-}
-
 Deno.serve(async (req) => {
   const preflight = handleCorsPreflight(req);
   if (preflight) return preflight;
 
   try {
     const { supabase, user } = await requireUser(req);
-    const { leadId, instruction } = await req.json();
+    const { leadId, instruction, versionId } = await req.json();
 
-    const { data: siteVersion, error: versionError } = await supabase
-      .from("site_versions")
-      .select("*")
-      .eq("lead_id", leadId)
-      .order("versienummer", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    // De versie die je in de app bekijkt, als die meegegeven is. Sinds
+    // hergenereren een nieuwe versie maakt in plaats van te overschrijven,
+    // staan er vaker meerdere naast elkaar, en "de nieuwste" is dan niet
+    // noodzakelijk die op je scherm. Zonder versionId (een oudere app) blijft
+    // het de nieuwste, zoals voorheen. De lead_id-filter blijft staan: een
+    // versie van een andere lead bewerken via een verkeerd id mag niet kunnen.
+    let versieQuery = supabase.from("site_versions").select("*").eq("lead_id", leadId);
+    versieQuery = versionId
+      ? versieQuery.eq("id", versionId)
+      : versieQuery.order("versienummer", { ascending: false }).limit(1);
+    const { data: siteVersion, error: versionError } = await versieQuery.maybeSingle();
 
     if (versionError || !siteVersion?.content_referentie) {
       throw new Error("Geen site-versie om te bewerken.");
@@ -208,22 +186,18 @@ Deno.serve(async (req) => {
     // Multi-page: edit the source parts (bron.json) and re-assemble.
     // Single page (pre-multi-page version): edit the one stored file directly.
     const bestanden: Record<string, string> = {};
+    //
+    // Vers gelezen (leesVers), niet via download(): die gaat langs de CDN en
+    // gaf vlak na de vorige bewerking nog de oude bron.json terug — waarop deze
+    // bewerking dan verderbouwde, zodat de vorige stil verdween.
     if (isMultipage) {
-      const { data: bronData, error: bronDownloadError } = await supabase.storage
-        .from("demos")
-        .download(`${map}/bron.json`);
-      if (bronDownloadError || !bronData) {
-        throw new Error(`Kon bron.json niet ophalen: ${bronDownloadError?.message}`);
-      }
-      Object.assign(bestanden, bronNaarBestanden(JSON.parse(await bronData.text()) as SiteBron));
+      const bronTekst = await leesVers(supabase, `${map}/bron.json`);
+      if (bronTekst === null) throw new Error("Kon bron.json niet ophalen.");
+      Object.assign(bestanden, bronNaarBestanden(JSON.parse(bronTekst) as SiteBron, VIRTUAL_DIR));
     } else {
-      const { data: fileData, error: downloadError } = await supabase.storage
-        .from("demos")
-        .download(siteVersion.content_referentie);
-      if (downloadError || !fileData) {
-        throw new Error(`Kon huidig bestand niet ophalen: ${downloadError?.message}`);
-      }
-      bestanden[VIRTUAL_PATH] = await fileData.text();
+      const html = await leesVers(supabase, siteVersion.content_referentie);
+      if (html === null) throw new Error("Kon het huidige bestand niet ophalen.");
+      bestanden[VIRTUAL_PATH] = html;
     }
 
     let tokensIn = 0;
@@ -343,7 +317,7 @@ Deno.serve(async (req) => {
       let nieuweBron: SiteBron;
       let gebouwd: { bestand: string; html: string }[];
       try {
-        nieuweBron = bestandenNaarBron(bestanden);
+        nieuweBron = bestandenNaarBron(bestanden, VIRTUAL_DIR);
         // Dezelfde analytics-instelling als bij het genereren meegeven, anders
         // haalt de eerste de beste chat-bewerking de cookiemelding en het
         // meetscript van elke pagina af — zonder dat iemand daarom vroeg.

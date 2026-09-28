@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { createWorkerClient } from "../shared/supabase.js";
+import { leesVers } from "../shared/opslag.js";
 
 // De site tonen zoals ze eruitziet, in een echte browser.
 //
@@ -69,10 +70,26 @@ export function startLokaleHosting(): void {
         return;
       }
 
+      // /{leadId}/v{n}/… toont precies versie n. Zonder dat toont localhost de
+      // actieve versie, en een kopie die je in de editor bewerkt staat juist
+      // (nog) niet live. De relatieve links tussen pagina's werken binnen die
+      // map vanzelf; enkel de slash achter v{n} moet er staan.
+      let rest = delen.slice(1);
+      let gevraagdeVersie: number | null = null;
+      const versieDeel = rest[0]?.match(/^v(\d+)$/);
+      if (versieDeel) {
+        gevraagdeVersie = Number(versieDeel[1]);
+        rest = rest.slice(1);
+        if (rest.length === 0 && !url.pathname.endsWith("/")) {
+          res.writeHead(302, { Location: `${url.pathname}/` });
+          res.end();
+          return;
+        }
+      }
+
       // Formulieren en reviews blijven naar de echte functie gaan: die kent de
       // honeypot, de rate limiting en de moderatie, en dat willen we hier niet
       // half overdoen.
-      const rest = delen.slice(1);
       if (rest[0] === "formulier" || rest[0] === "reviews") {
         if (!functieBasis) {
           res.writeHead(503, { "Content-Type": TYPES.txt });
@@ -150,7 +167,18 @@ export function startLokaleHosting(): void {
         .order("versienummer", { ascending: false });
 
       const versie =
-        (versies ?? []).find((v) => v.status === "actief") ?? (versies ?? [])[0] ?? null;
+        gevraagdeVersie !== null
+          ? ((versies ?? []).find((v) => v.versienummer === gevraagdeVersie) ?? null)
+          : ((versies ?? []).find((v) => v.status === "actief") ?? (versies ?? [])[0] ?? null);
+
+      if (gevraagdeVersie !== null && !versie) {
+        res.writeHead(404, { "Content-Type": TYPES.html });
+        res.end(
+          "<!DOCTYPE html><meta charset='utf-8'><title>Geen versie</title>" +
+            `<p style="font-family:system-ui;padding:2rem;color:#334155">Versie ${gevraagdeVersie} bestaat niet voor deze lead.</p>`,
+        );
+        return;
+      }
 
       if (!versie?.content_referentie) {
         res.writeHead(404, { "Content-Type": TYPES.html });
@@ -173,8 +201,10 @@ export function startLokaleHosting(): void {
         return;
       }
 
-      const { data: bestand, error } = await supabase.storage.from("demos").download(pad);
-      if (error || !bestand) {
+      // Vers gelezen: dit is de link waarmee je een wijziging nakijkt, en
+      // download() gaf via de CDN vlak na een bewaring nog de vorige versie.
+      const bestand = await leesVers(supabase, pad);
+      if (bestand === null) {
         res.writeHead(404, { "Content-Type": TYPES.html });
         res.end(
           "<!DOCTYPE html><meta charset='utf-8'><title>Niet gevonden</title>" +
@@ -188,7 +218,7 @@ export function startLokaleHosting(): void {
         // Tijdens het werken wil je na een hergeneratie meteen het nieuwe zien.
         "Cache-Control": "no-store",
       });
-      res.end(Buffer.from(await bestand.arrayBuffer()));
+      res.end(bestand);
     } catch (err) {
       res.writeHead(500, { "Content-Type": TYPES.txt });
       res.end(`Fout: ${err instanceof Error ? err.message : String(err)}`);

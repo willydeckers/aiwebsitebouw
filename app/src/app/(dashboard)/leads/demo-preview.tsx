@@ -5,7 +5,7 @@ import type { Lead, ReviewLogEntry, SiteVersion } from "@/lib/types";
 import { fetchDemoSite, type DemoSite } from "./version-actions";
 import { afzenderLabel } from "./chat-geschiedenis";
 import { useLeadChat } from "./use-lead-chat";
-import { ChatVenster } from "./chat-venster";
+import { PubliekeLinkInhoud, ReviewLogLijst } from "./publieke-link";
 import {
   bouwPreviewDocument,
   PREVIEW_NAVIGATIE_BERICHT,
@@ -14,7 +14,6 @@ import {
 } from "./preview-document";
 import { SendDialog } from "./send-dialog";
 import { SitePreviewVenster } from "./site-preview-venster";
-import { linkRendertInBrowser, lokaleLink } from "@/lib/demo-link";
 
 type Viewport = "desktop" | "mobiel";
 
@@ -29,17 +28,20 @@ export function DemoPreview({
   siteVersion,
   reviewLog,
   onChanged,
+  onOpenWerkruimte,
 }: {
   lead: Lead;
   demoUrl: string | null;
   siteVersion: SiteVersion;
   reviewLog: ReviewLogEntry[];
   onChanged: () => void;
+  /** De grote werkruimte (site links, chat rechts) — dezelfde als bij klanten. */
+  onOpenWerkruimte: () => void;
 }) {
   const [viewport, setViewport] = useState<Viewport>("desktop");
   const bestandInput = useRef<HTMLInputElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  const [chatOpen, setChatOpen] = useState(false);
   const [previewVersion, setPreviewVersion] = useState(0);
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -50,8 +52,8 @@ export function DemoPreview({
   const [previewHash, setPreviewHash] = useState("");
   const [previewError, setPreviewError] = useState<string | null>(null);
 
-  // Same conversation as the full-screen window: one hook, so the strip
-  // here and the big view can never behave differently.
+  // Same conversation as the werkruimte's chat: one hook, so the strip here
+  // and the big view can never behave differently.
   const chat = useLeadChat(lead.id, siteVersion, onChanged, () =>
     setPreviewVersion((v) => v + 1),
   );
@@ -74,11 +76,14 @@ export function DemoPreview({
     return () => {
       cancelled = true;
     };
-    // siteVersion is re-fetched by the parent on every change; the two fields
-    // below are what actually determine the content, plus previewVersion which
-    // forces a reload after a chat-edit rewrote the same paths.
+    // siteVersion is re-fetched by the parent on every change. What decides
+    // the content: the paths, and laatst_bewerkt_op — bumped by the trigger on
+    // every update of the row, so a chat-edit or an editor save that rewrote
+    // the SAME paths still triggers a reload (a single-page version used to
+    // never reload at all: neither of its other two fields ever changes).
+    // previewVersion forces one right after our own edit, before Realtime.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [siteVersion.content_referentie, siteVersion.paginas, previewVersion]);
+  }, [siteVersion.content_referentie, siteVersion.paginas, siteVersion.laatst_bewerkt_op, previewVersion]);
 
 
   // Internal links inside the preview can't navigate on their own (no origin,
@@ -88,6 +93,9 @@ export function DemoPreview({
     function onMessage(event: MessageEvent) {
       const bericht = event.data as PreviewNavigatieBericht | undefined;
       if (bericht?.type !== PREVIEW_NAVIGATIE_BERICHT) return;
+      // Enkel klikken uit déze iframe. Staat de werkruimte open over het
+      // paneel, dan komen haar klikken hier ook binnen.
+      if (event.source !== iframeRef.current?.contentWindow) return;
       // Staat het volledige scherm open, dan hoort de klik daar thuis: beide
       // luisteraars laten reageren zou de pagina hier ongemerkt meeverzetten.
       if (previewOpen) return;
@@ -146,6 +154,7 @@ export function DemoPreview({
       <div className="overflow-hidden rounded-xl border border-blue-100 bg-blue-50/60">
         {previewHtml ? (
           <iframe
+            ref={iframeRef}
             key={`${huidigePagina}${previewHash}`}
             srcDoc={bouwPreviewDocument(previewHtml, previewHash)}
             title={`Demo-preview — ${paginaLabel(huidigePagina)}`}
@@ -182,46 +191,9 @@ export function DemoPreview({
         ) : null}
       </div>
 
-      {linkOpen && demoUrl ? (
-        <div className="space-y-2 rounded-xl border border-blue-100 p-2 text-xs">
-          <div>
-            <p className="font-medium text-slate-700">Publieke link</p>
-            <p className="break-all text-slate-600">{demoUrl}</p>
-            {!linkRendertInBrowser() ? (
-              <p className="mt-0.5 text-slate-400">
-                Toont broncode in een browser — Supabase serveert alles op *.supabase.co als platte
-                tekst. Wel bruikbaar voor de preview hierboven en voor de review-loop.
-              </p>
-            ) : null}
-          </div>
+      {linkOpen && demoUrl ? <PubliekeLinkInhoud leadId={lead.id} demoUrl={demoUrl} /> : null}
 
-          {/* De enige link die vandaag écht een site toont. */}
-          <div>
-            <p className="font-medium text-slate-700">Om te tonen in een browser</p>
-            <a
-              href={lokaleLink(lead.id)}
-              target="_blank"
-              rel="noreferrer"
-              className="break-all text-blue-600 underline"
-            >
-              {lokaleLink(lead.id)}
-            </a>
-            <p className="mt-0.5 text-slate-400">
-              De worker serveert de site op deze machine. Werkt zolang die draait.
-            </p>
-          </div>
-        </div>
-      ) : null}
-
-      {reviewOpen && reviewLog.length > 0 ? (
-        <div className="space-y-1 rounded-xl border border-blue-100 p-2 text-sm">
-          {reviewLog.map((entry) => (
-            <p key={entry.id} className="text-slate-600">
-              [{entry.bron}] {entry.instructie_of_bevinding ?? entry.resultaat ?? entry.error_message}
-            </p>
-          ))}
-        </div>
-      ) : null}
+      {reviewOpen && reviewLog.length > 0 ? <ReviewLogLijst reviewLog={reviewLog} /> : null}
 
       {/* Everything that changes the site happens here: one input, so there's
           never a question of which box an instruction belongs in. */}
@@ -230,14 +202,14 @@ export function DemoPreview({
           <h4 className="text-xs font-medium text-slate-500">
             Aanpassen — typ hier wat er moet veranderen
           </h4>
-          {/* The strip here shows the last few lines; the full window shows the
-              whole thread and takes dragged-in files. Same conversation. */}
+          {/* The strip here shows the last few lines; the werkruimte shows the
+              whole thread next to the site. Same conversation. */}
           <button
             type="button"
-            onClick={() => setChatOpen(true)}
+            onClick={onOpenWerkruimte}
             className="text-xs font-medium text-blue-600 hover:underline"
           >
-            Open grote chatbox
+            Open werkruimte
           </button>
         </div>
 
@@ -341,16 +313,6 @@ export function DemoPreview({
       >
         Verstuur naar lead
       </button>
-
-      {chatOpen ? (
-        <ChatVenster
-          lead={lead}
-          siteVersion={siteVersion}
-          onChanged={onChanged}
-          onVersieGewijzigd={() => setPreviewVersion((v) => v + 1)}
-          onClose={() => setChatOpen(false)}
-        />
-      ) : null}
 
       {sendDialogOpen ? (
         <SendDialog lead={lead} onClose={() => setSendDialogOpen(false)} onSent={onChanged} />
